@@ -32,13 +32,14 @@ func NewPool(ctx context.Context, numWorkers int) *Pool {
 	// Create a cancellable context
 	ctx, cancel := context.WithCancel(ctx)
 
-	// Buffer sizes: tasks can queue up, results are unbuffered for backpressure
+	// Buffer sizes: both buffered to avoid deadlocks
 	taskBufferSize := numWorkers * 2
+	resultBufferSize := numWorkers * 2
 
 	return &Pool{
 		numWorkers: numWorkers,
 		tasks:      make(chan Task, taskBufferSize),
-		results:    make(chan Result),
+		results:    make(chan Result, resultBufferSize),
 		ctx:        ctx,
 		cancel:     cancel,
 	}
