@@ -153,3 +153,54 @@ Phase 2 will build:
 - Progress indicator (cheap, TTY-aware, disabled when not a TTY)
 
 This phase will also wire the CLI commands to the engine so `scoutr enum` and `scoutr probe` can run end-to-end.
+
+---
+
+## Phase 2: Engine - Worker Pool, Pipeline, Result Streaming ✅
+
+### What Was Built
+
+**1. Engine Package** (`internal/engine/pool.go`, `pipeline.go`, `progress.go`)
+- **Bounded worker pool**: Configurable number of workers, bounded channels, no unbounded goroutines
+- **Context-based shutdown**: `context.Context` threaded through all operations, clean shutdown on Ctrl+C
+- **Graceful shutdown**: Workers drain current work and exit cleanly when context is cancelled
+- **Result streaming**: Results written to output as they're found (JSONL), never buffered in memory
+- **Progress indicator**: TTY-aware, updates on newline, no busy loops (uses `time.Ticker`)
+
+**Key Go Concepts:**
+- **Worker Pool Pattern**: A fixed number of goroutines read from a `tasks` channel and write to a `results` channel
+- **Channels**: `tasks` channel for work items, `results` channel for results, `done` channel for completion signaling
+- **sync.WaitGroup**: Ensures all workers finish before shutdown completes
+- **Ticker for progress**: `time.Ticker` updates progress at fixed intervals without CPU spinning
+
+**2. CLI Commands Wiring**
+- `enum`: Reads scope, runs passive enum (crt.sh stub) and/or DNS brute force stub
+- `probe`: Reads hosts from input, probes each with `probe.Host()` stub
+- `scan`: Reads hosts from input, runs security checks stub
+- `report`: Reads findings, generates report stub
+
+**3. Finding Package** (`internal/findings/finding.go`)
+- `Finding` struct with all required fields (ID, check name, target, severity, confidence, evidence, etc.)
+- Severity enum: `Info`, `Low`, `Medium`, `High`
+- Confidence enum: `Low`, `Medium`, `High`
+- `Key()` method for deduplication (returns deterministic string for `(CheckID, Host, Path, Severity)`)
+
+**4. Checks Registry** (`internal/checks/registry.go`)
+- Global registry of checks with `Register()` and `GetAll()` functions
+- `Check` interface: `ID()`, `Description()`, `Run(ctx, target, client)`
+- Per-check enable/disable via `--checks` and `--skip` flags
+
+### Testing
+
+- Engine tests: worker pool shutdown, context cancellation, result streaming
+- Finding tests: deduplication, severity/conformance enums
+- Registry tests: registration, retrieval, filtering
+
+### Next: Phase 3
+
+Phase 3 will build:
+- Passive subdomain enumeration via crt.sh API
+- DNS brute force with wordlist and concurrent resolution
+- Live host probing with status, title, headers, redirect chain
+
+This phase will complete the `enum` and `probe` commands with real implementations.
