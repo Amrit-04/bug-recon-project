@@ -1,5 +1,11 @@
 # bug-recon
 
+[![Go](https://img.shields.io/badge/Go-1.21+-00ADD8?style=flat&logo=go&logoColor=white)](https://go.dev/)
+[![Security](https://img.shields.io/badge/Domain-AppSec%20%7C%20Bug%20Bounty-red?style=flat)](https://github.com/Amrit-04/bug-recon-project)
+[![CLI](https://img.shields.io/badge/CLI-Reconnaissance-blue?style=flat)](https://github.com/Amrit-04/bug-recon-project)
+[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+
+
 A modular security reconnaissance tool for web application security testing. Built with Go, it provides subdomain enumeration, host probing, and security checks with scope enforcement and rate limiting.
 
 ## Features
