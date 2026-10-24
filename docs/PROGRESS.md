@@ -204,3 +204,37 @@ Phase 3 will build:
 - Live host probing with status, title, headers, redirect chain
 
 This phase will complete the `enum` and `probe` commands with real implementations.
+
+---
+
+## Milestone 1: `internal/tools` Runner Abstraction & `scoutr arsenal` ✅
+
+### What Was Built
+
+1. **Pure-Go Testable Runner Abstraction** (`internal/tools/runner.go`):
+   - `CommandRunner` interface: `Run(ctx, bin, args, stdin)` and `LookPath(bin)`
+   - `ExecRunner`: Production implementation leveraging `os/exec.CommandContext` with context timeouts and safe byte buffers
+   - `MockRunner`: Deterministic pure-Go mock for unit testing across Windows and Linux CI without requiring external shell scripts or PATH binaries
+
+2. **Safe Input/Output Handling & Three-Layer Scope Enforcement** (`internal/tools/tool.go`):
+   - **Pre-filtering**: All targets pass `FilterTargetsInScope` with `scope.Scope` before invocation
+   - **Post-filtering**: All discovered records, hosts, or URLs pass `FilterDiscoveredItem` before entering data structures
+   - **Stdin & Temp File Modes**: Long target lists pass through stdin or temporary files (`defer os.Remove`), avoiding OS argument length limits
+   - **Line-Safe Streaming Scanner**: `SafeLineScanner` with 1 MB maximum line buffer prevents memory exhaustion
+
+3. **Arsenal Inspection & CLI** (`internal/cli/arsenal.go`):
+   - `scoutr arsenal`: Inspects PATH for 9 supported tools, reporting installed status, version, and trust tiers (`Passive OSINT` vs `Read-Only Probe`)
+   - `scripts/install_tools.ps1` & `scripts/install_tools.sh`: Manual installation scripts for operator-controlled setup via `go install`
+
+### Go Patterns Used
+- **Dependency Injection via Interfaces**: `CommandRunner` abstracts process execution, decoupling CLI commands from OS-level process spawning and enabling pure-Go unit testing.
+- **Resource Cleanup via Defer**: `defer os.Remove(tmpPath)` guarantees cleanup of temporary input files even on unexpected returns or cancellations.
+- **Bounded Streaming I/O**: `bufio.Scanner` with explicit buffer bounds prevents unbounded memory consumption when reading arbitrary external output.
+
+### Testing
+- `TestMockRunner`: Verified mock command dispatch, stdin capture, and error handling.
+- `TestInspectArsenal`: Verified tool detection, version parsing, and trust tiers.
+- `TestScopePreAndPostFiltering`: Verified out-of-scope targets are stripped before invocation and on discovery.
+- `TestSafeToolExecutionStdin`: Verified stdin pipeline and out-of-scope target exclusion.
+- `TestSafeToolExecutionTempFile`: Verified temp file creation, argument passing, and deferred deletion.
+
