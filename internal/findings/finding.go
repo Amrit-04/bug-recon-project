@@ -30,6 +30,7 @@ type Finding struct {
 	// Identification
 	ID        string `json:"id"`
 	CheckName string `json:"check_name"`
+	RuleID    string `json:"rule_id,omitempty"`
 
 	// Target
 	Target string `json:"target"` // Host or URL
@@ -56,6 +57,9 @@ type Finding struct {
 
 // Key returns a deterministic key for deduplication.
 func (f *Finding) Key() string {
+	if f.RuleID != "" {
+		return fmt.Sprintf("%s:%s:%s:%s:%s", f.CheckName, f.RuleID, f.Target, f.Path, f.Severity)
+	}
 	return fmt.Sprintf("%s:%s:%s:%s", f.CheckName, f.Target, f.Path, f.Severity)
 }
 

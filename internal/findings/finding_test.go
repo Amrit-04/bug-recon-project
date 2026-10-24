@@ -31,6 +31,19 @@ func TestFindingKey(t *testing.T) {
 	if f1.Key() == f4.Key() {
 		t.Error("findings with different severities should have different keys")
 	}
+
+	// Different RuleID
+	f5 := NewFinding("HDR-001", "headers", "example.com", "Missing HSTS", SeverityMedium, ConfidenceHigh)
+	f5.Path = "/test"
+	f5.RuleID = "HSTS-01"
+
+	f6 := NewFinding("HDR-001", "headers", "example.com", "Missing CSP", SeverityMedium, ConfidenceHigh)
+	f6.Path = "/test"
+	f6.RuleID = "CSP-01"
+
+	if f5.Key() == f6.Key() {
+		t.Error("findings with different rule IDs should have different keys")
+	}
 }
 
 func TestFindingValidate(t *testing.T) {

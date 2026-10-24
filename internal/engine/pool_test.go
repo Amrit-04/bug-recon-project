@@ -14,22 +14,22 @@ func TestPoolBasic(t *testing.T) {
 	var processed int32
 	pool.Start()
 
+	// Read results in a goroutine
+	done := make(chan struct{})
+	go func() {
+		for range pool.Results() {
+			atomic.AddInt32(&processed, 1)
+		}
+		close(done)
+	}()
+
 	// Submit some tasks
 	for i := 0; i < 10; i++ {
 		pool.Submit("task")
 	}
 
-	// Read results in a goroutine
-	go func() {
-		for range pool.Results() {
-			atomic.AddInt32(&processed, 1)
-		}
-	}()
-
 	pool.Wait()
-
-	// Give results channel time to close
-	time.Sleep(100 * time.Millisecond)
+	<-done
 
 	if atomic.LoadInt32(&processed) != 10 {
 		t.Errorf("expected 10 processed, got %d", processed)
@@ -43,25 +43,28 @@ func TestPoolCancellation(t *testing.T) {
 	var processed int32
 	pool.Start()
 
-	// Submit some tasks
-	for i := 0; i < 100; i++ {
-		pool.Submit("task")
-	}
-
-	// Cancel after a short delay
-	go func() {
-		time.Sleep(50 * time.Millisecond)
-		cancel()
-	}()
-
-	// Read results
+	// Read results in a goroutine
+	done := make(chan struct{})
 	go func() {
 		for range pool.Results() {
 			atomic.AddInt32(&processed, 1)
 		}
+		close(done)
 	}()
 
+	// Submit some tasks in goroutine so it doesn't block cancellation
+	go func() {
+		for i := 0; i < 100; i++ {
+			pool.Submit("task")
+		}
+	}()
+
+	// Cancel after a short delay
+	time.Sleep(50 * time.Millisecond)
+	cancel()
+
 	pool.Wait()
+	<-done
 
 	// Should have processed some but not all
 	processedCount := atomic.LoadInt32(&processed)

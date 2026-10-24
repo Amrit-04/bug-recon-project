@@ -17,12 +17,12 @@ const crtShURL = "https://crt.sh/?q=%%25.%s&output=json"
 
 // CRTSHResult represents a single entry from crt.sh.
 type CRTSHResult struct {
-	IssuerName      string `json:"issuer_name"`
-	Name            string `json:"name"`
-	MinCertID       int    `json:"min_cert_id"`
+	IssuerName        string `json:"issuer_name"`
+	Name              string `json:"name"`
+	MinCertID         int    `json:"min_cert_id"`
 	MinEntryTimestamp string `json:"min_entry_timestamp"`
-	NotBefore       string `json:"not_before"`
-	NotAfter        string `json:"not_after"`
+	NotBefore         string `json:"not_before"`
+	NotAfter          string `json:"not_after"`
 }
 
 // FromCRTSH enumerates subdomains from crt.sh certificate transparency logs.

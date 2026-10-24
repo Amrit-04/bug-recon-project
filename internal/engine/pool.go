@@ -19,12 +19,14 @@ type Result struct {
 
 // Pool is a bounded worker pool with context-based shutdown.
 type Pool struct {
-	numWorkers int
-	tasks      chan Task
-	results    chan Result
-	wg         sync.WaitGroup
-	ctx        context.Context
-	cancel     context.CancelFunc
+	numWorkers     int
+	tasks          chan Task
+	results        chan Result
+	wg             sync.WaitGroup
+	ctx            context.Context
+	cancel         context.CancelFunc
+	closeTasksOnce sync.Once
+	closeResOnce   sync.Once
 }
 
 // NewPool creates a new worker pool with the given number of workers.
@@ -79,7 +81,11 @@ func (p *Pool) worker() {
 			}
 			// Process the task
 			result := Result{Target: task.Target}
-			p.results <- result
+			select {
+			case <-p.ctx.Done():
+				return
+			case p.results <- result:
+			}
 		}
 	}
 }
@@ -95,13 +101,18 @@ func (p *Pool) Submit(target string) {
 
 // Close closes the tasks channel, signaling workers to finish.
 func (p *Pool) Close() {
-	close(p.tasks)
+	p.closeTasksOnce.Do(func() {
+		close(p.tasks)
+	})
 }
 
 // Wait blocks until all workers have finished.
 func (p *Pool) Wait() {
 	p.Close()
 	p.wg.Wait()
+	p.closeResOnce.Do(func() {
+		close(p.results)
+	})
 }
 
 // Results returns the results channel for reading processed results.
@@ -121,7 +132,9 @@ func (p *Pool) Process(handler func(context.Context, Task) (Result, error)) erro
 
 	// Start a goroutine to run the handler for each task
 	go func() {
-		defer close(p.results)
+		defer p.closeResOnce.Do(func() {
+			close(p.results)
+		})
 		for {
 			select {
 			case <-p.ctx.Done():
