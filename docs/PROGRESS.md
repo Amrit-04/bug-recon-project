@@ -274,4 +274,47 @@ This phase will complete the `enum` and `probe` commands with real implementatio
 - `TestRunKatana`: Verified crawl depth, `-cs` / `-cos` scope regex arguments, and endpoint extraction.
 - `TestRunNucleiPosture`: Verified mandatory read-only observation tags, `-no-interactsh`, and Finding mapping.
 
+---
+
+## Milestone 3: Deterministic Validation Gate (`scoutr validate`) & Workspace Persistence ✅
+
+### What Was Built
+
+1. **Package `internal/validate` (The 7-Check Readiness Gate)**:
+   - **Gate 1 (Scope Verification)**: Ensures target host and endpoint are strictly permitted by `scope.Scope`.
+   - **Gate 2 (Soft-404 / Baseline Diff)**: Distinguishes genuine file exposures from single-page application (SPA) catch-all fallbacks and generic HTML 404 pages.
+   - **Gate 3 (Content Signature Match)**: Enforces structural regex signatures on sensitive exposures (e.g. valid Git ref `ref: refs/heads/` or 40-hex commit hash for `.git/HEAD`; key-value assignments for `.env`; Apple magic header for `.DS_Store`).
+   - **Gate 4 (Impact Classification)**: Identifies actionable security posture findings while classifying missing security headers on static assets (`.png`, `.css`, `.woff`) as `NeedsManualReview`.
+   - **Gate 5 (Evidence Completeness & Credential Redaction)**: Verifies presence of reproducible evidence snippets and automatically redacts AWS keys (`AKIA...`), JWT tokens, and Bearer authorization tokens.
+   - **Gate 6 (Deduplication & Root-Cause Grouping)**: Groups repetitive misconfigurations on the same host under a single primary finding with `AffectedPaths` aggregated.
+   - **Gate 7 (Remediation Mapping)**: Maps findings to built-in knowledge base entries containing actionable remediation instructions, CWE identifiers, and OWASP references.
+   - Findings categorized into `Verified`, `NeedsManualReview`, and `Suppressed`.
+
+2. **Package `internal/workspace` (Audit Session Persistence)**:
+   - Creates structured run directories under `.scoutr/runs/<target>-<timestamp>/`.
+   - Persists and loads `inventory.json`, `raw_findings.json`, `validated_findings.json`, `report.md`, and `report.html`.
+   - Supports both JSON arrays and JSONL stream decoding for offline resilience.
+
+3. **Package `internal/report` & CLI Subcommands**:
+   - `internal/report/markdown.go`: Generates executive-ready HackerOne/Bugcrowd structured Markdown reports with severity summaries, remediation guidance, and evidence blocks.
+   - `internal/report/html.go`: Produces single-file interactive HTML reports with responsive layouts, collapsible `<details>` evidence drawers, and light/dark theme toggles.
+   - `scoutr validate`: Supports direct evaluation via `-i` and offline re-validation via `--from <run-dir>`.
+   - `scoutr report`: Supports offline report generation directly from `--from <run-dir>` without re-scanning.
+
+### Go Patterns Used
+- **Multi-Format Deserialization**: Workspace loaders test JSON array format (`[`) before falling back to line-by-line `bufio.Scanner` JSONL streaming, ensuring seamless interoperability between batch tools and unix pipes.
+- **Data Aggregation & Grouping**: Map-based aggregation preserving insertion order via tracking keys (`orderedKeys`), cleanly deduplicating endpoints across identical rule IDs without data loss.
+- **Embedded Static Assets & Templating**: Single-file HTML generation with self-contained CSS variables and vanilla JavaScript functions eliminating external CDN dependencies and security risks.
+
+### Testing
+- `TestGate1ScopeVerification`: Confirmed in-scope vs out-of-scope gate enforcement.
+- `TestGate2And3Soft404AndSignatures`: Verified suppression of HTML SPA fallbacks pretending to be `.git/HEAD` or `.env`.
+- `TestGate4ImpactClassification`: Verified downgrade of static asset header findings to `NeedsManualReview`.
+- `TestGate5EvidenceRedaction`: Confirmed automated masking of AWS access keys and JWT strings.
+- `TestGate6DeduplicationAndGrouping`: Verified grouping of multiple paths on the same host into one primary finding.
+- `TestGate7RemediationMapping`: Verified automated mapping of CWE/OWASP references and remediation text.
+- `TestWorkspaceLifecycle`: Verified end-to-end saving and loading of inventory, raw findings, validated findings, and reports across runs.
+- `TestReportGeneration`: Verified Markdown and interactive HTML report generation.
+
+
 
