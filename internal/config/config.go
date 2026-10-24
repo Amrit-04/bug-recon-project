@@ -35,23 +35,27 @@ type Config struct {
 	PassiveOnly bool
 	Brute       bool
 	Wordlist    string
+	External    bool
 
 	// Checks
-	Checks     []string // If empty, run all checks
-	SkipChecks []string
+	Checks        []string // If empty, run all checks
+	SkipChecks    []string
+	VerifyPosture bool
 }
 
 // FileConfig is the structure of .scoutr.yaml config files.
 type FileConfig struct {
-	Concurrency  *int              `yaml:"concurrency,omitempty"`
-	Rate         *float64          `yaml:"rate,omitempty"`
-	RatePerHost  *float64          `yaml:"rate_per_host,omitempty"`
-	Timeout      *string           `yaml:"timeout,omitempty"` // e.g., "30s"
-	MaxBodyBytes *int64            `yaml:"max_body_bytes,omitempty"`
-	UserAgent    *string           `yaml:"user_agent,omitempty"`
-	Headers      map[string]string `yaml:"headers,omitempty"`
-	Checks       []string          `yaml:"checks,omitempty"`
-	SkipChecks   []string          `yaml:"skip_checks,omitempty"`
+	Concurrency   *int              `yaml:"concurrency,omitempty"`
+	Rate          *float64          `yaml:"rate,omitempty"`
+	RatePerHost   *float64          `yaml:"rate_per_host,omitempty"`
+	Timeout       *string           `yaml:"timeout,omitempty"` // e.g., "30s"
+	MaxBodyBytes  *int64            `yaml:"max_body_bytes,omitempty"`
+	UserAgent     *string           `yaml:"user_agent,omitempty"`
+	Headers       map[string]string `yaml:"headers,omitempty"`
+	Checks        []string          `yaml:"checks,omitempty"`
+	SkipChecks    []string          `yaml:"skip_checks,omitempty"`
+	External      *bool             `yaml:"external,omitempty"`
+	VerifyPosture *bool             `yaml:"verify_posture,omitempty"`
 }
 
 // Defaults returns a Config with sensible defaults.
@@ -116,6 +120,12 @@ func applyFileConfig(cfg *Config, fc *FileConfig) {
 	}
 	if len(fc.SkipChecks) > 0 {
 		cfg.SkipChecks = fc.SkipChecks
+	}
+	if fc.External != nil {
+		cfg.External = *fc.External
+	}
+	if fc.VerifyPosture != nil {
+		cfg.VerifyPosture = *fc.VerifyPosture
 	}
 }
 

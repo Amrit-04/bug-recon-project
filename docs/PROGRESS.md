@@ -238,3 +238,40 @@ This phase will complete the `enum` and `probe` commands with real implementatio
 - `TestSafeToolExecutionStdin`: Verified stdin pipeline and out-of-scope target exclusion.
 - `TestSafeToolExecutionTempFile`: Verified temp file creation, argument passing, and deferred deletion.
 
+---
+
+## Milestone 2: Wiring Passive & Read-Only Discovery Tools ✅
+
+### What Was Built
+
+1. **Passive & Read-Only Tool Integrations** (`internal/tools/discovery.go`, `discovery_test.go`):
+   - **`subfinder`**: Passive subdomain discovery using `-silent -json`, stdin feeding, scope pre/post filtering.
+   - **`amass`**: Strictly passive mapping via `enum -passive -nocolor -json`.
+   - **`assetfinder`**: Passive subdomain correlation using `--subs-only`.
+   - **`dnsx`**: DNS resolution and record verification with native `-rl <rate>` limit mapping.
+   - **`httpx`** (ProjectDiscovery binary): Live host probe with title, webserver, tech stack, and status codes (`-silent -json -rl <rate> -no-color`). Zero package collision with internal `httpx.Client`.
+   - **`waybackurls` / `gau`**: Passive historical archive endpoint retrieval with URL validation.
+   - **`katana`**: Shallow web link discovery (`-silent -jsonl -rl <rate> -d 2`) with dynamic scope regex generation (`-cs` and `-cos`) derived from `scope.yaml`.
+   - **`nuclei` (Strictly Read-Only/Informational Opt-In)**: Only invoked when `--verify-posture` is specified. Hardcodes read-only observation tags (`-tags ssl,tls,tech,headers,misconfig,exposure`), excludes invasive tags (`-etags fuzz,intrusive,dos,exploit,rce,sqli,xss,lfi,ssrf`), and enforces `-rl <rate>`, `-c 5`, and `-no-interactsh`.
+
+2. **CLI Subcommands Wired**:
+   - `scoutr enum --external`: Merges deduplicated, scope-verified results from `subfinder`, `amass`, `assetfinder`, and `dnsx` with built-in `crt.sh`.
+   - `scoutr urls`: Retrieves and scope-filters historical URLs from public archive APIs.
+   - `scoutr crawl`: Executes scope-constrained shallow link discovery.
+   - `scoutr scan --verify-posture`: Opt-in read-only observation posture audit.
+   - All commands feature comprehensive `--dry-run` support.
+
+### Go Patterns Used
+- **Graceful Tool Degradation**: External binaries are discovered via `LookPath`; missing tools log structured notices rather than failing execution.
+- **Dynamic Regex Compilation**: Automated conversion of YAML scope patterns into valid Katana crawler regex boundaries (`BuildScopeRegex`).
+- **Target Ingestion Streaming**: Line-by-line decoding of JSONL streams avoids loading unbounded result sets into memory.
+
+### Testing
+- `TestRunSubfinder`, `TestRunAmass`, `TestRunAssetfinder`: Verified passive subdomain extraction and post-filtering.
+- `TestRunDNSX`: Verified rate limit argument mapping and DNS record filtering.
+- `TestRunPDHTTPX`: Verified technology and status code parsing.
+- `TestRunURLs`: Verified archive URL parsing across `gau` and `waybackurls`.
+- `TestRunKatana`: Verified crawl depth, `-cs` / `-cos` scope regex arguments, and endpoint extraction.
+- `TestRunNucleiPosture`: Verified mandatory read-only observation tags, `-no-interactsh`, and Finding mapping.
+
+
