@@ -18,6 +18,7 @@ import (
 var (
 	validateFromRun string
 	validateInput   string
+	validateTriage  bool
 )
 
 var validateCmd = &cobra.Command{
@@ -43,6 +44,9 @@ Categorizes findings into: Verified, NeedsManualReview, and Suppressed.
 func init() {
 	validateCmd.Flags().StringVar(&validateFromRun, "from", "", "Load raw findings from existing workspace run directory")
 	validateCmd.Flags().StringVarP(&validateInput, "input", "i", "", "Input findings file (JSONL format)")
+	validateCmd.Flags().BoolVar(&validateTriage, "triage", false,
+		"Run Tier 2 LLM triage immediately after the gate (requires --from, keeps triage.json separate)")
+	addLLMFlags(validateCmd)
 	RootCmd.AddCommand(validateCmd)
 }
 
@@ -149,6 +153,20 @@ func runValidate(cmd *cobra.Command, args []string) error {
 			}
 		}
 		fmt.Printf("Wrote validated output to: %s\n", cfg.OutputFile)
+	}
+
+	// Optional Tier 2 step: triage runs strictly AFTER the gate has written its
+	// verdicts, reads only validated_findings.json and writes a separate artifact.
+	if validateTriage {
+		if ws == nil {
+			return fmt.Errorf("--triage requires --from <run-dir> so triage.json is stored in the workspace")
+		}
+		report, err := runTriageForWorkspace(ctx, ws, cfg.Verbose)
+		if err != nil {
+			return fmt.Errorf("triage after validation: %w", err)
+		}
+		fmt.Printf("Saved triage results to: %s/%s\n", ws.Dir, workspace.TriageFile)
+		printTriageSummary(report)
 	}
 
 	return nil

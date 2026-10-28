@@ -22,6 +22,9 @@ const (
 	TrustTierPassiveOSINT TrustTier = "Passive OSINT"
 	// TrustTierReadOnlyProbe denotes strictly read-only inspection queries sent directly to targets.
 	TrustTierReadOnlyProbe TrustTier = "Read-Only Probe"
+	// TrustTierActiveScan denotes Tier 1 active scanning that sends bounded probe traffic to targets
+	// (port sweeps, content discovery, XSS probes). Always executed at a configured rate limit.
+	TrustTierActiveScan TrustTier = "Active Scan (Tier 1)"
 )
 
 // ToolDef defines metadata and execution properties of a supported external tool.
@@ -107,6 +110,38 @@ var SupportedTools = []ToolDef{
 		Description: "Fast vulnerability scanner (used strictly in read-only informational posture mode)",
 		InstallHint: "go install -v github.com/projectdiscovery/nuclei/v3/cmd/nuclei@latest",
 		VersionArgs: []string{"-version"},
+	},
+	{
+		Name:        "naabu",
+		Binary:      "naabu",
+		Tier:        TrustTierActiveScan,
+		Description: "Port discovery using the top 100 ports only (connect scan, rate limited)",
+		InstallHint: "go install -v github.com/projectdiscovery/naabu/v2/cmd/naabu@latest",
+		VersionArgs: []string{"-version"},
+	},
+	{
+		Name:        "nmap",
+		Binary:      "nmap",
+		Tier:        TrustTierActiveScan,
+		Description: "Service/version detection (-sV) restricted to ports discovered by naabu",
+		InstallHint: "nmap is not a Go binary: install via package manager (winget install Insecure.Nmap / choco install nmap / apt install nmap)",
+		VersionArgs: []string{"--version"},
+	},
+	{
+		Name:        "ffuf",
+		Binary:      "ffuf",
+		Tier:        TrustTierActiveScan,
+		Description: "Content/path discovery with a curated short wordlist and enforced rate limit",
+		InstallHint: "go install -v github.com/ffuf/ffuf/v2@latest",
+		VersionArgs: []string{"-V"},
+	},
+	{
+		Name:        "dalfox",
+		Binary:      "dalfox",
+		Tier:        TrustTierActiveScan,
+		Description: "XSS probing with headless DOM verification (--deep-domxss); results are gate candidates only",
+		InstallHint: "go install -v github.com/hahwul/dalfox/v2@latest",
+		VersionArgs: []string{"version"},
 	},
 }
 

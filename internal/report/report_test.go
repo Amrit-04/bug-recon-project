@@ -49,3 +49,23 @@ func TestReportGeneration(t *testing.T) {
 		t.Errorf("expected dark/light mode toggle in HTML")
 	}
 }
+
+// Critical findings must be counted and styled, not silently folded into Info.
+func TestReportRendersCriticalSeverity(t *testing.T) {
+	f := findings.NewFinding("RCE-01", "exposure", "api.example.com", "Remote code execution", findings.SeverityCritical, findings.ConfidenceHigh)
+	f.Evidence = "uid=0(root)"
+	vf := &validate.ValidatedFinding{Finding: f, Status: validate.StatusVerified}
+
+	md := GenerateMarkdown("api.example.com", []*validate.ValidatedFinding{vf})
+	if !strings.Contains(md, "Critical | 1") {
+		t.Errorf("expected a Critical row with a count of 1 in the markdown summary")
+	}
+
+	html := GenerateHTML("api.example.com", []*validate.ValidatedFinding{vf})
+	if !strings.Contains(html, "badge-critical") {
+		t.Errorf("expected a critical severity badge in HTML")
+	}
+	if !strings.Contains(html, "--critical:") {
+		t.Errorf("expected the critical colour variable in the HTML stylesheet")
+	}
+}

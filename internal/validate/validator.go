@@ -85,27 +85,41 @@ func (v *Validator) ValidateFinding(ctx context.Context, f *findings.Finding) *V
 	evidenceBytes := []byte(f.Evidence + "\n" + f.Response)
 
 	// --- Gate 1: Scope Verification ---
-	inScope := true
-	if v.Scope != nil {
+	// Without a scope file the gate cannot verify the single most important
+	// property, so it must not claim a pass. The finding drops to manual review
+	// instead of being reported as Verified.
+	if v.Scope == nil {
+		vf.GateResults = append(vf.GateResults, GateResult{
+			GateID: 1,
+			Name:   "Scope Verification",
+			Passed: false,
+			Reason: "No scope file configured: in-scope status could not be verified",
+		})
+		if vf.Status == StatusVerified {
+			vf.Status = StatusNeedsManualReview
+			vf.SuppressionWhy = "Scope not configured"
+		}
+	} else {
+		var inScope bool
 		targetHost := f.Target
 		if strings.HasPrefix(targetHost, "http://") || strings.HasPrefix(targetHost, "https://") {
 			inScope = v.Scope.IsURLInScope(targetHost)
 		} else {
 			inScope = v.Scope.IsInScope(targetHost)
 		}
+		if !inScope {
+			vf.GateResults = append(vf.GateResults, GateResult{
+				GateID: 1,
+				Name:   "Scope Verification",
+				Passed: false,
+				Reason: fmt.Sprintf("Target %s is outside permitted scope", f.Target),
+			})
+			vf.Status = StatusSuppressed
+			vf.SuppressionWhy = "Target out of scope"
+			return vf
+		}
+		vf.GateResults = append(vf.GateResults, GateResult{GateID: 1, Name: "Scope Verification", Passed: true})
 	}
-	if !inScope {
-		vf.GateResults = append(vf.GateResults, GateResult{
-			GateID: 1,
-			Name:   "Scope Verification",
-			Passed: false,
-			Reason: fmt.Sprintf("Target %s is outside permitted scope", f.Target),
-		})
-		vf.Status = StatusSuppressed
-		vf.SuppressionWhy = "Target out of scope"
-		return vf
-	}
-	vf.GateResults = append(vf.GateResults, GateResult{GateID: 1, Name: "Scope Verification", Passed: true})
 
 	// --- Gate 2: Soft-404 / Baseline Diff ---
 	// Heuristic: Check if response body is HTML when checking sensitive config/exposure endpoints

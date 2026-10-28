@@ -27,115 +27,124 @@ type Result struct {
 	Error      string `json:"error,omitempty"`
 }
 
+// Options controls the HTTP behaviour of host probing. Zero values fall back to
+// conservative defaults, and every request is made through one scope-enforcing
+// client so rate limits and custom headers apply to the whole probe run.
+type Options struct {
+	Timeout     time.Duration
+	MaxBodySize int64
+	UserAgent   string
+	Headers     map[string]string
+	GlobalRate  float64
+	PerHostRate float64
+	DryRun      bool
+	Concurrency int
+}
+
+const (
+	defaultProbeTimeout     = 10 * time.Second
+	defaultProbeMaxBody     = 100 * 1024 // 100KB is enough for a title and headers
+	defaultProbeConcurrency = 10
+	defaultProbeUserAgent   = "scoutr/1.0 (security research)"
+)
+
+func (o Options) normalized() Options {
+	if o.Timeout <= 0 {
+		o.Timeout = defaultProbeTimeout
+	}
+	if o.MaxBodySize <= 0 {
+		o.MaxBodySize = defaultProbeMaxBody
+	}
+	if o.UserAgent == "" {
+		o.UserAgent = defaultProbeUserAgent
+	}
+	if o.Concurrency < 1 {
+		o.Concurrency = defaultProbeConcurrency
+	}
+	return o
+}
+
 // titleRegex extracts the HTML title from a response body.
 var titleRegex = regexp.MustCompile(`<title[^>]*>([^<]+)</title>`)
 
-// Host probes a single host to determine if it's live and gather basic information.
-func Host(ctx context.Context, s *scope.Scope, host string) (*Result, error) {
-	result := &Result{
-		Host: host,
-	}
+// Hosts probes multiple hosts concurrently and returns one result per host, in
+// input order. A host that answers on neither scheme is reported as not live
+// rather than as an error.
+func Hosts(ctx context.Context, s *scope.Scope, hosts []string, opts Options) ([]*Result, error) {
+	opts = opts.normalized()
+	client := httpx.New(httpx.Config{
+		Scope:         s,
+		Timeout:       opts.Timeout,
+		MaxBodySize:   opts.MaxBodySize,
+		GlobalRate:    opts.GlobalRate,
+		PerHostRate:   opts.PerHostRate,
+		DryRun:        opts.DryRun,
+		UserAgent:     opts.UserAgent,
+		CustomHeaders: opts.Headers,
+	})
 
-	// Create HTTP client with scope enforcement
-	cfg := httpx.Config{
-		Scope:       s,
-		Timeout:     10 * time.Second,
-		MaxBodySize: 1024 * 100, // 100KB for probing
-		GlobalRate:  0,          // No rate limit for probing
-		PerHostRate: 0,
-		UserAgent:   "scoutr/1.0 (security research)",
-	}
-	client := httpx.New(cfg)
-
-	// Try HTTPS first
-	httpsURL := "https://" + host
-	resp, err := client.Get(ctx, httpsURL)
-	if err == nil {
-		result.URL = httpsURL
-		result.HTTPS = true
-		result.Live = true
-		result.StatusCode = resp.StatusCode
-		result.Server = resp.Header.Get("Server")
-		result.ContentLen = resp.ContentLength
-
-		// Check for redirect
-		if resp.StatusCode >= 300 && resp.StatusCode < 400 {
-			result.Redirect = resp.Header.Get("Location")
-		}
-
-		// Extract title
-		body, _ := io.ReadAll(resp.Body)
-		resp.Body.Close()
-		if matches := titleRegex.FindSubmatch(body); len(matches) > 1 {
-			result.Title = strings.TrimSpace(string(matches[1]))
-		}
-
-		return result, nil
-	}
-
-	// Try HTTP as fallback
-	httpURL := "http://" + host
-	resp, err = client.Get(ctx, httpURL)
-	if err != nil {
-		result.Error = err.Error()
-		return result, nil // Not live, but not an error for probing
-	}
-
-	result.URL = httpURL
-	result.HTTPS = false
-	result.Live = true
-	result.StatusCode = resp.StatusCode
-	result.Server = resp.Header.Get("Server")
-	result.ContentLen = resp.ContentLength
-
-	// Check for redirect
-	if resp.StatusCode >= 300 && resp.StatusCode < 400 {
-		result.Redirect = resp.Header.Get("Location")
-	}
-
-	// Extract title
-	body, _ := io.ReadAll(resp.Body)
-	resp.Body.Close()
-	if matches := titleRegex.FindSubmatch(body); len(matches) > 1 {
-		result.Title = strings.TrimSpace(string(matches[1]))
-	}
-
-	return result, nil
-}
-
-// Hosts probes multiple hosts concurrently.
-func Hosts(ctx context.Context, s *scope.Scope, hosts []string, concurrency int) ([]*Result, error) {
-	results := make([]*Result, 0, len(hosts))
-	resultChan := make(chan *Result, len(hosts))
-
-	// Use a semaphore for concurrency limiting
-	sem := make(chan struct{}, concurrency)
+	results := make([]*Result, len(hosts))
+	sem := make(chan struct{}, opts.Concurrency)
 	var wg sync.WaitGroup
 
-	for _, host := range hosts {
+	for i, host := range hosts {
 		wg.Add(1)
-		go func(h string) {
+		go func(i int, h string) {
 			defer wg.Done()
 			sem <- struct{}{}
 			defer func() { <-sem }()
 
-			result, err := Host(ctx, s, h)
+			res, err := probeHost(ctx, client, h)
 			if err != nil {
-				result = &Result{Host: h, Error: err.Error()}
+				res = &Result{Host: h, Error: err.Error()}
 			}
-			resultChan <- result
-		}(host)
+			results[i] = res
+		}(i, host)
 	}
-
-	// Wait for all probes and collect results
-	go func() {
-		wg.Wait()
-		close(resultChan)
-	}()
-
-	for result := range resultChan {
-		results = append(results, result)
-	}
+	wg.Wait()
 
 	return results, nil
+}
+
+// probeHost tries HTTPS first and falls back to HTTP. HTTP-level failures are
+// results ("not live"), not probe errors.
+func probeHost(ctx context.Context, client *httpx.Client, host string) (*Result, error) {
+	if res, err := probeURL(ctx, client, host, "https"); err == nil {
+		return res, nil
+	}
+
+	res, err := probeURL(ctx, client, host, "http")
+	if err != nil {
+		res.Error = err.Error()
+		return res, nil
+	}
+	return res, nil
+}
+
+// probeURL requests one scheme for a host and extracts the probe metadata.
+func probeURL(ctx context.Context, client *httpx.Client, host, scheme string) (*Result, error) {
+	u := scheme + "://" + host
+	resp, err := client.Get(ctx, u)
+	if err != nil {
+		return &Result{Host: host}, err
+	}
+	defer resp.Body.Close()
+
+	res := &Result{
+		Host:       host,
+		URL:        u,
+		Live:       true,
+		HTTPS:      scheme == "https",
+		StatusCode: resp.StatusCode,
+		Server:     resp.Header.Get("Server"),
+		ContentLen: resp.ContentLength,
+	}
+	if resp.StatusCode >= 300 && resp.StatusCode < 400 {
+		res.Redirect = resp.Header.Get("Location")
+	}
+	body, _ := io.ReadAll(resp.Body)
+	if matches := titleRegex.FindSubmatch(body); len(matches) > 1 {
+		res.Title = strings.TrimSpace(string(matches[1]))
+	}
+	return res, nil
 }

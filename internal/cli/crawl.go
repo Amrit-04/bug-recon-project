@@ -131,6 +131,6 @@ func runCrawl(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	fmt.Printf("Discovered %d in-scope crawl endpoints\n", len(results))
+	fmt.Fprintf(os.Stderr, "Discovered %d in-scope crawl endpoints\n", len(results))
 	return nil
 }

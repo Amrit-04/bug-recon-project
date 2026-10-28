@@ -37,6 +37,7 @@ func GenerateMarkdown(target string, list []*validate.ValidatedFinding) string {
 	b.WriteString("## Executive Summary\n\n")
 	b.WriteString("| Severity | Count |\n")
 	b.WriteString("| :--- | :--- |\n")
+	b.WriteString(fmt.Sprintf("| 🟣 Critical | %d |\n", sevCount[findings.SeverityCritical]))
 	b.WriteString(fmt.Sprintf("| 🔴 High | %d |\n", sevCount[findings.SeverityHigh]))
 	b.WriteString(fmt.Sprintf("| 🟠 Medium | %d |\n", sevCount[findings.SeverityMedium]))
 	b.WriteString(fmt.Sprintf("| 🔵 Low | %d |\n", sevCount[findings.SeverityLow]))

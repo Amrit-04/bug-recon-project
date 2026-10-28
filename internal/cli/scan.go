@@ -14,28 +14,22 @@ import (
 
 var scanCmd = &cobra.Command{
 	Use:   "scan",
-	Short: "Run security checks against live hosts",
-	Long: `Run security checks against a list of live hosts.
+	Short: "Run the opt-in read-only nuclei posture check",
+	Long: `Run read-only posture verification against a list of live hosts.
 
-Available checks:
-  - headers:   Missing/weak security headers (CSP, HSTS, X-Frame-Options, etc.)
-  - cookies:   Secure/HttpOnly/SameSite flags
-  - exposure:  Exposed files (.git/HEAD, .env, backups, .DS_Store, debug endpoints)
-  - takeover:  Dangling CNAME + provider fingerprint matching
-  - cors:      Permissive CORS (reflected origin with credentials)
-  - tls:       Certificate issues (expired, soon-expiring, weak protocols)
-
-External Posture Verification (Opt-In):
+Posture Verification (Opt-In, Required):
   --verify-posture: Runs nuclei strictly in read-only observation mode with safe templates
   (tags: ssl,tls,tech,headers,misconfig,exposure; excluded: fuzz,intrusive,dos,exploit,rce,sqli,xss,lfi,ssrf).
 
+No built-in checks are compiled into this build, so "scoutr scan" requires
+--verify-posture and otherwise refuses to run rather than reporting a scan that
+inspected nothing. Local header/cookie/exposure/takeover/CORS/TLS checks are a
+future milestone; until then "run" pipelines posture verification only.
+
 All checks are passive/read-only. No exploitation or payload injection.
 `,
-	Example: `  scoutr scan --scope scope.yaml -i live.jsonl -o findings.jsonl
-  scoutr scan --scope scope.yaml -i live.jsonl --verify-posture -o findings.jsonl
-  scoutr scan --scope scope.yaml -i live.jsonl --checks headers,cookies -o findings.jsonl
-  scoutr scan --scope scope.yaml -i live.jsonl --skip cors,tls -o findings.jsonl`,
-	RunE: runScan,
+	Example: `  scoutr scan --scope scope.yaml -i live.jsonl --verify-posture -o findings.jsonl`,
+	RunE:    runScan,
 }
 
 func init() {
@@ -54,6 +48,13 @@ func runScan(cmd *cobra.Command, args []string) error {
 	s, err := scope.LoadFromFile(cfg.ScopeFile)
 	if err != nil {
 		return fmt.Errorf("load scope: %w", err)
+	}
+
+	// Honesty guard: `scan` has no built-in checks in this build, so without
+	// the opt-in nuclei posture stage it would inspect nothing and print a
+	// clean result. Refuse instead.
+	if err := scanPrecondition(cfg.VerifyPosture); err != nil {
+		return err
 	}
 
 	// Read input
@@ -114,9 +115,7 @@ func runScan(cmd *cobra.Command, args []string) error {
 	if cfg.DryRun {
 		fmt.Fprintf(os.Stderr, "[DRY-RUN] Scope file: %s\n", cfg.ScopeFile)
 		fmt.Fprintf(os.Stderr, "[DRY-RUN] Would scan %d targets: %v\n", len(targets), targets)
-		if cfg.VerifyPosture {
-			fmt.Fprintf(os.Stderr, "[DRY-RUN] Would execute opt-in nuclei read-only posture check (-tags ssl,tls,tech,headers,misconfig,exposure -etags fuzz,intrusive,dos,exploit,rce,sqli,xss,lfi,ssrf)\n")
-		}
+		fmt.Fprintf(os.Stderr, "[DRY-RUN] Would execute opt-in nuclei read-only posture check (-tags ssl,tls,tech,headers,misconfig,exposure -etags fuzz,intrusive,dos,exploit,rce,sqli,xss,lfi,ssrf)\n")
 		return nil
 	}
 
@@ -128,15 +127,15 @@ func runScan(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	// Opt-in external nuclei posture verification
-	if cfg.VerifyPosture {
-		logger("[INFO] Executing opt-in nuclei posture check (strictly read-only observation)...")
-		nucFindings, err := tools.RunNucleiPosture(cmd.Context(), runner, s, targets, int(cfg.Rate), logger)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Warning: nuclei posture check failed: %v\n", err)
-		} else {
-			allFindings = append(allFindings, nucFindings...)
-		}
+	// Opt-in external nuclei posture verification. The guard above guarantees
+	// this is the only engine that can run, and it only ever emits nuclei
+	// posture findings.
+	logger("[INFO] Executing opt-in nuclei posture check (strictly read-only observation)...")
+	nucFindings, err := tools.RunNucleiPosture(cmd.Context(), runner, s, targets, int(cfg.Rate), logger)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: nuclei posture check failed: %v\n", err)
+	} else {
+		allFindings = append(allFindings, nucFindings...)
 	}
 
 	// Write findings as JSONL
@@ -147,6 +146,16 @@ func runScan(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	fmt.Printf("Scan complete. Emitted %d findings\n", len(allFindings))
+	fmt.Fprintf(os.Stderr, "Scan complete. Emitted %d findings\n", len(allFindings))
 	return nil
+}
+
+// scanPrecondition explains why a scan that inspects nothing must not run: an
+// empty result is indistinguishable from a clean scan. Until built-in checks
+// exist, nuclei posture verification is the only engine scan has.
+func scanPrecondition(verifyPosture bool) error {
+	if verifyPosture {
+		return nil
+	}
+	return fmt.Errorf("scan has no built-in checks in this build; pass --verify-posture to run the opt-in read-only nuclei posture check")
 }

@@ -36,6 +36,8 @@ func GenerateHTML(target string, list []*validate.ValidatedFinding) string {
 
 		badgeClass := "badge-info"
 		switch f.Severity {
+		case findings.SeverityCritical:
+			badgeClass = "badge-critical"
 		case findings.SeverityHigh:
 			badgeClass = "badge-high"
 		case findings.SeverityMedium:
@@ -115,6 +117,7 @@ func GenerateHTML(target string, list []*validate.ValidatedFinding) string {
   --text-primary: #f8fafc;
   --text-secondary: #94a3b8;
   --border: #334155;
+  --critical: #b91c1c;
   --high: #ef4444;
   --medium: #f97316;
   --low: #3b82f6;
@@ -148,6 +151,7 @@ header { display: flex; justify-content: space-between; align-items: center; bor
 .card-header h3 { margin: 0; font-size: 1.1rem; }
 .card-body { padding: 1.5rem; }
 .badge { padding: 0.25rem 0.6rem; border-radius: 4px; font-size: 0.75rem; font-weight: bold; color: white; }
+.badge-critical { background-color: var(--critical); }
 .badge-high { background-color: var(--high); }
 .badge-medium { background-color: var(--medium); }
 .badge-low { background-color: var(--low); }

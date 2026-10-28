@@ -91,3 +91,83 @@ func TestWorkspaceLifecycle(t *testing.T) {
 		t.Errorf("reopened workspace failed to load inventory: %v", err)
 	}
 }
+
+// A UTF-8 BOM (written by PowerShell's Set-Content -Encoding utf8 on Windows)
+// must not defeat the array/JSONL format detection.
+func TestLoadValidatedFindingsWithBOM(t *testing.T) {
+	ws, err := NewRun(t.TempDir(), "example.com")
+	if err != nil {
+		t.Fatalf("create workspace: %v", err)
+	}
+
+	body := `[{"finding":{"id":"bom-1","check_name":"c","target":"https://example.com","title":"t"},"status":"Verified"}]`
+	payload := append(append([]byte{}, utf8BOM...), body...)
+	if err := os.WriteFile(filepath.Join(ws.Dir, ValidatedFindingsFile), payload, 0644); err != nil {
+		t.Fatalf("write artifact: %v", err)
+	}
+
+	list, err := ws.LoadValidatedFindings()
+	if err != nil {
+		t.Fatalf("load validated findings: %v", err)
+	}
+	if len(list) != 1 || list[0].Finding.ID != "bom-1" {
+		t.Fatalf("unexpected findings: %+v", list)
+	}
+}
+
+// inventory.json can be produced by external tooling too, so it must tolerate
+// a UTF-8 BOM in both the JSON-array and JSONL layouts.
+func TestLoadInventoryWithBOM(t *testing.T) {
+	ws, err := NewRun(t.TempDir(), "example.com")
+	if err != nil {
+		t.Fatalf("create workspace: %v", err)
+	}
+
+	cases := map[string][]string{
+		`["api.example.com","www.example.com"]`:                                 {"api.example.com", "www.example.com"},
+		"{\"host\":\"api.example.com\"}\n{\"url\":\"https://www.example.com\"}": {"api.example.com", "https://www.example.com"},
+	}
+	for body, want := range cases {
+		payload := append(append([]byte{}, utf8BOM...), body...)
+		if err := os.WriteFile(filepath.Join(ws.Dir, InventoryFile), payload, 0644); err != nil {
+			t.Fatalf("write inventory: %v", err)
+		}
+		got, err := ws.LoadInventory()
+		if err != nil {
+			t.Fatalf("load inventory from %q: %v", body, err)
+		}
+		if len(got) != len(want) {
+			t.Fatalf("LoadInventory(%q) = %v, want %v", body, got, want)
+		}
+		for i := range want {
+			if got[i] != want[i] {
+				t.Errorf("LoadInventory(%q)[%d] = %q, want %q", body, i, got[i], want[i])
+			}
+		}
+	}
+}
+
+// Drafts are confined to reports/drafts; traversal attempts are refused.
+func TestDraftPathRejectsTraversal(t *testing.T) {
+	ws, err := NewRun(t.TempDir(), "example.com")
+	if err != nil {
+		t.Fatalf("create workspace: %v", err)
+	}
+
+	for _, name := range []string{"../escape.md", "..\\escape.md", string(filepath.Separator) + "abs.md", ".."} {
+		if _, err := ws.DraftPath(name); err == nil {
+			t.Errorf("DraftPath(%q) should be refused", name)
+		}
+		if _, err := ws.SaveDraft(name, "x"); err == nil {
+			t.Errorf("SaveDraft(%q) should be refused", name)
+		}
+	}
+
+	path, err := ws.SaveDraft("ok.md", "# ok")
+	if err != nil {
+		t.Fatalf("SaveDraft(ok.md): %v", err)
+	}
+	if filepath.Dir(path) != ws.DraftDir() {
+		t.Errorf("draft written outside %s: %s", ws.DraftDir(), path)
+	}
+}

@@ -1,4 +1,4 @@
-.PHONY: build test lint run clean release help
+.PHONY: build test test-race lint fmt-check ci run clean release help
 
 # Build the binary
 build:
@@ -25,6 +25,12 @@ fmt-check:
 		gofmt -l .; \
 		exit 1; \
 	fi
+
+# Full CI gate: formatting, vet, build and tests (mirrors .github/workflows/ci.yml)
+ci: fmt-check
+	go vet ./...
+	go build ./...
+	go test ./... -count=1
 
 # Run the tool (example)
 run:
@@ -55,6 +61,7 @@ help:
 	@echo "  test-race   Run tests with race detector"
 	@echo "  lint        Format code and run vet"
 	@echo "  fmt-check   Check if code is formatted"
+	@echo "  ci          Format check + vet + build + test"
 	@echo "  run         Run the tool"
 	@echo "  clean       Remove build artifacts"
 	@echo "  release     Cross-compile for linux/mac/windows"

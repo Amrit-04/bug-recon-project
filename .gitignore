@@ -21,12 +21,20 @@ go.work
 # IDE specific files
 .vscode/
 .idea/
+.qoder/
 *.swp
 *.swo
 *~
 
-# Test data
-testdata/
+# Build and release output
+dist/
+
+# Runtime output (workspaces, drafts, approval queue)
+.scoutr/
+reports/
+
+# Stray artifacts
+*.rdb
 
 # OS specific files
 .DS_Store

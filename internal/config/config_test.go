@@ -9,9 +9,6 @@ import (
 
 func TestDefaults(t *testing.T) {
 	cfg := Defaults()
-	if cfg.Concurrency != 25 {
-		t.Errorf("expected concurrency 25, got %d", cfg.Concurrency)
-	}
 	if cfg.Rate != 10.0 {
 		t.Errorf("expected rate 10.0, got %f", cfg.Rate)
 	}
@@ -25,18 +22,15 @@ func TestLoadFromFile(t *testing.T) {
 		name         string
 		content      string
 		wantError    bool
-		checkConcur  int
 		checkRate    float64
 		checkTimeout time.Duration
 	}{
 		{
-			name: "override concurrency",
-			content: `concurrency: 50
-rate: 20.0
+			name: "override rate",
+			content: `rate: 20.0
 `,
-			wantError:   false,
-			checkConcur: 50,
-			checkRate:   20.0,
+			wantError: false,
+			checkRate: 20.0,
 		},
 		{
 			name: "override timeout",
@@ -47,7 +41,7 @@ rate: 20.0
 		},
 		{
 			name:      "invalid YAML",
-			content:   `concurrency: [unclosed`,
+			content:   `rate: [unclosed`,
 			wantError: true,
 		},
 	}
@@ -68,9 +62,6 @@ rate: 20.0
 				return
 			}
 
-			if tt.checkConcur > 0 && cfg.Concurrency != tt.checkConcur {
-				t.Errorf("expected concurrency %d, got %d", tt.checkConcur, cfg.Concurrency)
-			}
 			if tt.checkRate > 0 && cfg.Rate != tt.checkRate {
 				t.Errorf("expected rate %f, got %f", tt.checkRate, cfg.Rate)
 			}
@@ -84,8 +75,7 @@ rate: 20.0
 func TestPrecedence(t *testing.T) {
 	// File config should override defaults
 	tmpFile := filepath.Join(t.TempDir(), ".scoutr.yaml")
-	content := `concurrency: 100
-rate: 50.0
+	content := `rate: 50.0
 `
 	if err := os.WriteFile(tmpFile, []byte(content), 0644); err != nil {
 		t.Fatal(err)
@@ -96,15 +86,39 @@ rate: 50.0
 		t.Fatal(err)
 	}
 
-	if cfg.Concurrency != 100 {
-		t.Errorf("file should override default concurrency, got %d", cfg.Concurrency)
-	}
 	if cfg.Rate != 50.0 {
 		t.Errorf("file should override default rate, got %f", cfg.Rate)
 	}
 	// Fields not in file should keep defaults
 	if cfg.RatePerHost != 3.0 {
 		t.Errorf("unset fields should keep default, got rate_per_host %f", cfg.RatePerHost)
+	}
+}
+
+func TestFileConfigApplyKeepsExplicitFlags(t *testing.T) {
+	rate := 1.0
+	timeout := "5s"
+	external := true
+	posture := true
+	fc := &FileConfig{
+		Rate:          &rate,
+		Timeout:       &timeout,
+		External:      &external,
+		VerifyPosture: &posture,
+	}
+
+	cfg := Defaults()
+	changed := map[string]bool{"rate": true}
+	fc.Apply(cfg, func(flagName string) bool { return changed[flagName] })
+
+	if cfg.Rate != 10.0 {
+		t.Errorf("an explicit --rate must win over the file, got %f", cfg.Rate)
+	}
+	if cfg.Timeout != 5*time.Second {
+		t.Errorf("file timeout should apply when the flag is unset, got %v", cfg.Timeout)
+	}
+	if !cfg.External || !cfg.VerifyPosture {
+		t.Errorf("file booleans should apply, got external=%v verify_posture=%v", cfg.External, cfg.VerifyPosture)
 	}
 }
 
@@ -118,11 +132,6 @@ func TestValidate(t *testing.T) {
 			name:      "valid config",
 			modify:    func(c *Config) {},
 			wantError: false,
-		},
-		{
-			name:      "zero concurrency",
-			modify:    func(c *Config) { c.Concurrency = 0 },
-			wantError: true,
 		},
 		{
 			name:      "negative rate",

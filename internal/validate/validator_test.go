@@ -60,6 +60,27 @@ func TestGate1ScopeVerification(t *testing.T) {
 	}
 }
 
+// Without a scope file Gate 1 cannot be satisfied, so nothing may be Verified.
+func TestGate1WithoutScopeCannotPass(t *testing.T) {
+	validator := NewValidator(nil)
+
+	f := findings.NewFinding("HDR-2", "headers", "api.example.com", "Missing HSTS", findings.SeverityMedium, findings.ConfidenceHigh)
+	f.Evidence = "HTTP/1.1 200 OK"
+	f.Remediation = "Send Strict-Transport-Security on every response."
+	f.References = []string{"https://owasp.org/Top10/A05_2021-Security_Misconfiguration/"}
+	vf := validator.ValidateFinding(context.Background(), f)
+
+	if len(vf.GateResults) == 0 || vf.GateResults[0].GateID != 1 {
+		t.Fatalf("expected Gate 1 to be recorded, got %+v", vf.GateResults)
+	}
+	if vf.GateResults[0].Passed {
+		t.Fatal("Gate 1 must not pass when no scope is configured")
+	}
+	if vf.Status != StatusNeedsManualReview {
+		t.Errorf("status = %s, want NeedsManualReview", vf.Status)
+	}
+}
+
 func TestGate2And3Soft404AndSignatures(t *testing.T) {
 	s := createTestScope(t)
 	validator := NewValidator(s)

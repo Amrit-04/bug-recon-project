@@ -523,6 +523,8 @@ func RunNucleiPosture(ctx context.Context, runner CommandRunner, s *scope.Scope,
 			// Map severity
 			sev := findings.SeverityInfo
 			switch strings.ToLower(item.Info.Severity) {
+			case "critical":
+				sev = findings.SeverityCritical
 			case "low":
 				sev = findings.SeverityLow
 			case "medium":
@@ -532,7 +534,10 @@ func RunNucleiPosture(ctx context.Context, runner CommandRunner, s *scope.Scope,
 			}
 
 			f := findings.NewFinding(
-				fmt.Sprintf("NUC-%s", item.TemplateID),
+				// The template ID alone is host-independent: two hosts matching the
+				// same template would share an ID, and every downstream stage
+				// (triage verdicts, drafts, approval queue) joins on that ID.
+				fmt.Sprintf("NUC-%s-%08x", item.TemplateID, fnv32(target)),
 				"nuclei",
 				target,
 				item.Info.Name,

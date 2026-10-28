@@ -86,6 +86,6 @@ func runURLs(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	fmt.Printf("Collected %d unique in-scope archive URLs\n", len(urls))
+	fmt.Fprintf(os.Stderr, "Collected %d unique in-scope archive URLs\n", len(urls))
 	return nil
 }

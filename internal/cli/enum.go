@@ -183,6 +183,6 @@ func runEnum(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	fmt.Printf("Found %d unique subdomains\n", len(found))
+	fmt.Fprintf(os.Stderr, "Found %d unique subdomains\n", len(found))
 	return nil
 }

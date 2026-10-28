@@ -22,6 +22,21 @@ const (
 	ValidatedFindingsFile = "validated_findings.json"
 	ReportMDFile          = "report.md"
 	ReportHTMLFile        = "report.html"
+
+	// Tier 1 stage artifacts produced by ports, crawl, fuzz and XSS stages.
+	PortsFile = "ports.json"
+	HTTPXFile = "httpx.json"
+	CrawlFile = "crawl.json"
+	FuzzFile  = "fuzz.json"
+
+	// Tier 2 artifacts. triage.json NEVER feeds the report directly: it only
+	// influences ordering, while validated_findings.json stays the source of truth.
+	TriageFile = "triage.json"
+
+	// Tier 3 (human) artifacts.
+	DraftsDir           = "reports/drafts"
+	DraftIndexFile      = "index.md"
+	SubmissionQueueFile = "submission_ready.json"
 )
 
 // Workspace manages persistence of recon and scan artifacts for an audit session.
@@ -97,7 +112,9 @@ func (w *Workspace) LoadInventory() ([]string, error) {
 		return nil, fmt.Errorf("read inventory: %w", err)
 	}
 
-	trimmed := bytes.TrimSpace(data)
+	// Files written by other tooling (notably PowerShell's ``-Encoding utf8``)
+	// may start with a UTF-8 BOM, which JSON decoders reject.
+	trimmed := bytes.TrimSpace(bytes.TrimPrefix(data, utf8BOM))
 	if len(trimmed) == 0 {
 		return nil, nil
 	}
@@ -142,6 +159,11 @@ func (w *Workspace) SaveRawFindings(raw []*findings.Finding) error {
 	return os.WriteFile(path, data, 0644)
 }
 
+// utf8BOM is prepended by some Windows editors (PowerShell's Set-Content
+// -Encoding utf8, Notepad) and would otherwise defeat the JSON array/JSONL
+// format detection below.
+var utf8BOM = []byte("\xef\xbb\xbf")
+
 // LoadRawFindings reads raw findings from raw_findings.json (supporting both JSON array and JSONL).
 func (w *Workspace) LoadRawFindings() ([]*findings.Finding, error) {
 	path := filepath.Join(w.Dir, RawFindingsFile)
@@ -150,7 +172,7 @@ func (w *Workspace) LoadRawFindings() ([]*findings.Finding, error) {
 		return nil, fmt.Errorf("read raw findings: %w", err)
 	}
 
-	trimmed := bytes.TrimSpace(data)
+	trimmed := bytes.TrimSpace(bytes.TrimPrefix(data, utf8BOM))
 	if len(trimmed) == 0 {
 		return nil, nil
 	}
@@ -199,7 +221,7 @@ func (w *Workspace) LoadValidatedFindings() ([]*validate.ValidatedFinding, error
 		return nil, fmt.Errorf("read validated findings: %w", err)
 	}
 
-	trimmed := bytes.TrimSpace(data)
+	trimmed := bytes.TrimSpace(bytes.TrimPrefix(data, utf8BOM))
 	if len(trimmed) == 0 {
 		return nil, nil
 	}
@@ -240,4 +262,104 @@ func (w *Workspace) SaveReportMD(content string) error {
 func (w *Workspace) SaveReportHTML(content string) error {
 	path := filepath.Join(w.Dir, ReportHTMLFile)
 	return os.WriteFile(path, []byte(content), 0644)
+}
+
+// safeArtifactName rejects any artifact name that could escape the run directory.
+func safeArtifactName(name string) error {
+	if name == "" {
+		return fmt.Errorf("artifact name is required")
+	}
+	if filepath.IsAbs(name) || strings.ContainsAny(name, `\/`) || name == ".." || name == "." {
+		return fmt.Errorf("invalid artifact name %q: must be a plain file name inside the run directory", name)
+	}
+	return nil
+}
+
+// SaveArtifact marshals v as indented JSON into <runDir>/<name>.
+// It is used for stage artifacts (ports, httpx, crawl, fuzz, triage).
+func (w *Workspace) SaveArtifact(name string, v any) error {
+	if err := safeArtifactName(name); err != nil {
+		return err
+	}
+	data, err := json.MarshalIndent(v, "", "  ")
+	if err != nil {
+		return fmt.Errorf("marshal artifact %s: %w", name, err)
+	}
+	return os.WriteFile(filepath.Join(w.Dir, name), data, 0644)
+}
+
+// LoadArtifact unmarshals <runDir>/<name> into v.
+func (w *Workspace) LoadArtifact(name string, v any) error {
+	if err := safeArtifactName(name); err != nil {
+		return err
+	}
+	data, err := os.ReadFile(filepath.Join(w.Dir, name))
+	if err != nil {
+		return fmt.Errorf("read artifact %s: %w", name, err)
+	}
+	data = bytes.TrimSpace(bytes.TrimPrefix(data, utf8BOM))
+	if len(bytes.TrimSpace(data)) == 0 {
+		return fmt.Errorf("artifact %s is empty", name)
+	}
+	if err := json.Unmarshal(data, v); err != nil {
+		return fmt.Errorf("unmarshal artifact %s: %w", name, err)
+	}
+	return nil
+}
+
+// DraftDir returns the absolute path of the draft directory (reports/drafts).
+func (w *Workspace) DraftDir() string {
+	return filepath.Join(w.Dir, filepath.FromSlash(DraftsDir))
+}
+
+// DraftPath resolves a draft file name inside reports/drafts and refuses any
+// name that would escape that directory.
+func (w *Workspace) DraftPath(fileName string) (string, error) {
+	if err := safeArtifactName(fileName); err != nil {
+		return "", err
+	}
+	dir := w.DraftDir()
+	path := filepath.Join(dir, fileName)
+	rel, err := filepath.Rel(dir, path)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return "", fmt.Errorf("draft path %q escapes %s", fileName, dir)
+	}
+	return path, nil
+}
+
+// SaveDraft writes a Markdown draft to reports/drafts/<fileName> and returns
+// its absolute path. Drafts are deliberately kept out of any submission-ready
+// location: a human must pass scoutr submit --require-approval first.
+func (w *Workspace) SaveDraft(fileName, content string) (string, error) {
+	path, err := w.DraftPath(fileName)
+	if err != nil {
+		return "", err
+	}
+	dir := w.DraftDir()
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return "", fmt.Errorf("create draft directory: %w", err)
+	}
+	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+		return "", fmt.Errorf("write draft %s: %w", fileName, err)
+	}
+	return path, nil
+}
+
+// ListDrafts returns the plain file names of all drafts in reports/drafts.
+func (w *Workspace) ListDrafts() ([]string, error) {
+	entries, err := os.ReadDir(w.DraftDir())
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("list drafts: %w", err)
+	}
+	var names []string
+	for _, e := range entries {
+		if e.IsDir() {
+			continue
+		}
+		names = append(names, e.Name())
+	}
+	return names, nil
 }

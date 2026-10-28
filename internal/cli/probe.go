@@ -4,11 +4,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/spf13/cobra"
 
 	"github.com/scoutr/scoutr/internal/recon/probe"
 	"github.com/scoutr/scoutr/internal/scope"
+	"github.com/scoutr/scoutr/internal/tools"
 )
 
 var probeCmd = &cobra.Command{
@@ -22,6 +24,9 @@ For each host, probes:
   - Server header
   - Technology hints (from headers and HTML)
   - Redirect chain
+
+Requests go through the scope-enforcing HTTP client, so --rate, --rate-per-host,
+--timeout, --user-agent and --header apply to every probe.
 `,
 	Example: `  scoutr probe --scope scope.yaml -i subs.jsonl -o live.jsonl
   cat subs.jsonl | scoutr probe --scope scope.yaml -o live.jsonl`,
@@ -57,7 +62,53 @@ func runProbe(cmd *cobra.Command, args []string) error {
 		input = os.Stdin
 	}
 
-	// Open output file
+	// Read hosts from input (JSONL format: {"host": "example.com"})
+	decoder := json.NewDecoder(input)
+	var hosts []string
+	seen := make(map[string]bool)
+	for {
+		var entry map[string]any
+		if err := decoder.Decode(&entry); err != nil {
+			break
+		}
+		h, _ := entry["host"].(string)
+		h = strings.TrimSpace(h)
+		if h != "" && !seen[h] {
+			seen[h] = true
+			hosts = append(hosts, h)
+		}
+	}
+
+	if len(hosts) == 0 {
+		return fmt.Errorf("no hosts found in input")
+	}
+
+	// Drop out-of-scope hosts up front; the transport would block them anyway,
+	// but probing them only produces noise.
+	hosts = tools.FilterTargetsInScope(s, hosts)
+	if len(hosts) == 0 {
+		return fmt.Errorf("all input hosts were out of scope")
+	}
+
+	if cfg.DryRun {
+		fmt.Fprintf(os.Stderr, "[DRY-RUN] Scope file: %s\n", cfg.ScopeFile)
+		fmt.Fprintf(os.Stderr, "[DRY-RUN] Would probe %d hosts: %v\n", len(hosts), hosts)
+		return nil
+	}
+
+	results, err := probe.Hosts(cmd.Context(), s, hosts, probe.Options{
+		Timeout:     cfg.Timeout,
+		MaxBodySize: cfg.MaxBodyBytes,
+		UserAgent:   cfg.UserAgent,
+		Headers:     cfg.Headers,
+		GlobalRate:  cfg.Rate,
+		PerHostRate: cfg.RatePerHost,
+	})
+	if err != nil {
+		return fmt.Errorf("probe: %w", err)
+	}
+
+	// Open output only once there is something to write.
 	var out *os.File
 	if cfg.OutputFile != "" {
 		out, err = os.Create(cfg.OutputFile)
@@ -69,36 +120,9 @@ func runProbe(cmd *cobra.Command, args []string) error {
 		out = os.Stdout
 	}
 
-	ctx := cmd.Context()
-
-	// Read hosts from input (JSONL format: {"host": "example.com"})
-	decoder := json.NewDecoder(input)
-	var hosts []string
-	for {
-		var entry map[string]string
-		if err := decoder.Decode(&entry); err != nil {
-			break
-		}
-		if h, ok := entry["host"]; ok {
-			hosts = append(hosts, h)
-		}
-	}
-
-	if len(hosts) == 0 {
-		return fmt.Errorf("no hosts found in input")
-	}
-
-	// Probe each host
 	encoder := json.NewEncoder(out)
 	live := 0
-	for _, host := range hosts {
-		result, err := probe.Host(ctx, s, host)
-		if err != nil {
-			if cfg.Verbose {
-				fmt.Fprintf(os.Stderr, "probe %s: %v\n", host, err)
-			}
-			continue
-		}
+	for _, result := range results {
 		if result.Live {
 			live++
 		}
@@ -107,6 +131,6 @@ func runProbe(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	fmt.Printf("Probed %d hosts, %d live\n", len(hosts), live)
+	fmt.Fprintf(os.Stderr, "Probed %d hosts, %d live\n", len(results), live)
 	return nil
 }

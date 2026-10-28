@@ -14,6 +14,7 @@ import (
 
 	"github.com/scoutr/scoutr/internal/findings"
 	"github.com/scoutr/scoutr/internal/report"
+	"github.com/scoutr/scoutr/internal/scope"
 	"github.com/scoutr/scoutr/internal/validate"
 	"github.com/scoutr/scoutr/internal/workspace"
 )
@@ -21,6 +22,7 @@ import (
 var (
 	reportFromRun   string
 	reportInputFile string
+	reportDraft     bool
 )
 
 var reportCmd = &cobra.Command{
@@ -44,9 +46,18 @@ Supports generating reports directly from workspace runs without re-scanning.
 func init() {
 	reportCmd.Flags().StringVar(&reportFromRun, "from", "", "Generate report from existing workspace run directory")
 	reportCmd.Flags().StringVarP(&reportInputFile, "input", "i", "", "Input findings file (JSONL format)")
+	reportCmd.Flags().BoolVar(&reportDraft, "draft", false,
+		"Tier 2: write one Markdown draft per likely_true/needs_human finding under reports/drafts (requires triage.json)")
+	addLLMFlags(reportCmd)
 }
 
 func runReport(cmd *cobra.Command, args []string) error {
+	// Tier 2 drafting is a separate output path: it never overwrites the
+	// validated-findings report and never writes outside reports/drafts.
+	if reportDraft {
+		return runReportDraft(cmd, args)
+	}
+
 	cfg := globalConfig
 	format := strings.ToLower(cfg.Format)
 	if format == "" {
@@ -73,7 +84,10 @@ func runReport(cmd *cobra.Command, args []string) error {
 			if loadErr != nil {
 				return fmt.Errorf("load findings from workspace %s: %w", reportFromRun, loadErr)
 			}
-			validator := validate.NewValidator(nil)
+			validator, verr := reportValidator()
+			if verr != nil {
+				return verr
+			}
 			validatedList = validator.ValidateAndGroup(context.Background(), raw)
 		}
 
@@ -122,7 +136,10 @@ func runReport(cmd *cobra.Command, args []string) error {
 		}
 
 		if len(validatedList) == 0 && len(rawList) > 0 {
-			validator := validate.NewValidator(nil)
+			validator, verr := reportValidator()
+			if verr != nil {
+				return verr
+			}
 			validatedList = validator.ValidateAndGroup(context.Background(), rawList)
 		}
 	}
@@ -172,4 +189,18 @@ func runReport(cmd *cobra.Command, args []string) error {
 	}
 
 	return nil
+}
+
+// reportValidator binds the gate to the configured scope file. Without a scope
+// file Gate 1 cannot pass, so findings fall back to NeedsManualReview instead
+// of being reported as verified when nothing checked their scope.
+func reportValidator() (*validate.Validator, error) {
+	if globalConfig.ScopeFile == "" {
+		return validate.NewValidator(nil), nil
+	}
+	s, err := scope.LoadFromFile(globalConfig.ScopeFile)
+	if err != nil {
+		return nil, fmt.Errorf("load scope: %w", err)
+	}
+	return validate.NewValidator(s), nil
 }
