@@ -1,0 +1,9 @@
+# scoutr scope file — the transport-level guard every request is checked against.
+# Placeholder target: replace with the domain from your bug bounty program's
+# policy before running anything live.
+in_scope:
+  - "example.com"
+  - "*.example.com"
+out_of_scope:
+  - "admin.example.com"
+  - "internal.example.com"
