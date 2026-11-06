@@ -39,8 +39,10 @@ type Client interface {
 
 // DefaultEndpoints for the supported providers.
 const (
-	DefaultOllamaEndpoint = "http://127.0.0.1:11434"
-	DefaultOpenAIEndpoint = "http://127.0.0.1:11434/v1"
+	DefaultOllamaEndpoint   = "http://127.0.0.1:11434"
+	DefaultOpenAIEndpoint   = "http://127.0.0.1:11434/v1"
+	DefaultLMStudioEndpoint = "http://127.0.0.1:1234/v1"
+	DefaultLlamaCppEndpoint = "http://127.0.0.1:8080/v1"
 	// APIKeyEnv is the only place an API key is read from: keys never appear
 	// in flags, workspace artifacts or triage.json.
 	APIKeyEnv = "SCOUTR_LLM_API_KEY"
@@ -62,6 +64,8 @@ func newHTTPClient(timeout time.Duration) *http.Client {
 //
 // Supported providers:
 //   - "ollama": native Ollama /api/chat with format=json
+//   - "lmstudio", "lm-studio": LM Studio local server (/v1/chat/completions)
+//   - "llamacpp", "llama.cpp": llama.cpp local server (/v1/chat/completions)
 //   - "openai": any OpenAI-compatible /v1/chat/completions endpoint
 func NewClient(provider, endpoint, model string, timeout time.Duration) (Client, error) {
 	if strings.TrimSpace(model) == "" {
@@ -92,13 +96,42 @@ func NewClient(provider, endpoint, model string, timeout time.Duration) (Client,
 			return nil, err
 		}
 		return &OpenAIClient{
+			name:     "openai",
+			endpoint: strings.TrimRight(endpoint, "/"),
+			model:    model,
+			apiKey:   os.Getenv(APIKeyEnv),
+			http:     newHTTPClient(timeout),
+		}, nil
+	case "lmstudio", "lm-studio":
+		if endpoint == "" {
+			endpoint = DefaultLMStudioEndpoint
+		}
+		if err := validateEndpoint(endpoint); err != nil {
+			return nil, err
+		}
+		return &OpenAIClient{
+			name:     "lmstudio",
+			endpoint: strings.TrimRight(endpoint, "/"),
+			model:    model,
+			apiKey:   os.Getenv(APIKeyEnv),
+			http:     newHTTPClient(timeout),
+		}, nil
+	case "llamacpp", "llama.cpp":
+		if endpoint == "" {
+			endpoint = DefaultLlamaCppEndpoint
+		}
+		if err := validateEndpoint(endpoint); err != nil {
+			return nil, err
+		}
+		return &OpenAIClient{
+			name:     "llamacpp",
 			endpoint: strings.TrimRight(endpoint, "/"),
 			model:    model,
 			apiKey:   os.Getenv(APIKeyEnv),
 			http:     newHTTPClient(timeout),
 		}, nil
 	default:
-		return nil, fmt.Errorf("unsupported LLM provider %q (supported: ollama, openai)", provider)
+		return nil, fmt.Errorf("unsupported LLM provider %q (supported: ollama, lmstudio, llamacpp, openai)", provider)
 	}
 }
 
@@ -170,6 +203,7 @@ func (c *OllamaClient) Complete(ctx context.Context, req CompletionRequest) (Com
 
 // OpenAIClient talks to any OpenAI-compatible chat completions endpoint.
 type OpenAIClient struct {
+	name     string
 	endpoint string
 	model    string
 	apiKey   string
@@ -177,7 +211,12 @@ type OpenAIClient struct {
 }
 
 // Name implements Client.
-func (c *OpenAIClient) Name() string { return "openai" }
+func (c *OpenAIClient) Name() string {
+	if c.name != "" {
+		return c.name
+	}
+	return "openai"
+}
 
 // Complete implements Client using response_format=json_object.
 func (c *OpenAIClient) Complete(ctx context.Context, req CompletionRequest) (CompletionResponse, error) {

@@ -24,9 +24,9 @@ var (
 // addLLMFlags registers the Tier 2 flags on a command.
 func addLLMFlags(cmd *cobra.Command) {
 	cmd.Flags().StringVar(&llmProvider, "llm-provider", "ollama",
-		"LLM provider: ollama (local, default) or openai (any OpenAI-compatible endpoint)")
+		"LLM provider: ollama (default), lmstudio, llamacpp, openai (OpenAI-compatible)")
 	cmd.Flags().StringVar(&llmEndpoint, "llm-endpoint", "",
-		"LLM endpoint URL (default: http://127.0.0.1:11434). API keys are read from "+triage.APIKeyEnv+" only")
+		"LLM endpoint URL (defaults: ollama=11434, lmstudio=1234, llamacpp=8080). API keys are read from "+triage.APIKeyEnv+" only")
 	cmd.Flags().StringVar(&llmModel, "llm-model", "",
 		"Model name for the configured endpoint (required unless --no-llm)")
 	cmd.Flags().DurationVar(&llmTimeout, "llm-timeout", 120*time.Second,

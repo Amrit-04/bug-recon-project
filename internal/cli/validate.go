@@ -77,7 +77,7 @@ func runValidate(cmd *cobra.Command, args []string) error {
 		if err != nil {
 			return fmt.Errorf("load raw findings from workspace: %w", err)
 		}
-		fmt.Printf("Loaded %d raw findings from workspace: %s\n", len(rawFindings), validateFromRun)
+		fmt.Fprintf(os.Stderr, "Loaded %d raw findings from workspace: %s\n", len(rawFindings), validateFromRun)
 	} else {
 		// 2. Loading from input file or stdin
 		var in *os.File
@@ -124,35 +124,41 @@ func runValidate(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	fmt.Printf("\n7-Check Gate Validation Results:\n")
-	fmt.Printf("  * Verified Findings:     %d\n", verifiedCount)
-	fmt.Printf("  * Needs Manual Review:   %d\n", reviewCount)
-	fmt.Printf("  * Suppressed (False +):  %d\n", suppressedCount)
-	fmt.Printf("  * Total After Grouping:  %d\n\n", len(validated))
+	fmt.Fprintf(os.Stderr, "\n7-Check Gate Validation Results:\n")
+	fmt.Fprintf(os.Stderr, "  * Verified Findings:     %d\n", verifiedCount)
+	fmt.Fprintf(os.Stderr, "  * Needs Manual Review:   %d\n", reviewCount)
+	fmt.Fprintf(os.Stderr, "  * Suppressed (False +):  %d\n", suppressedCount)
+	fmt.Fprintf(os.Stderr, "  * Total After Grouping:  %d\n\n", len(validated))
 
 	// Save back to workspace if active
 	if ws != nil {
 		if err := ws.SaveValidatedFindings(validated); err != nil {
 			return fmt.Errorf("save validated findings to workspace: %w", err)
 		}
-		fmt.Printf("Saved validated findings to: %s/%s\n", ws.Dir, workspace.ValidatedFindingsFile)
+		fmt.Fprintf(os.Stderr, "Saved validated findings to: %s/%s\n", ws.Dir, workspace.ValidatedFindingsFile)
 	}
 
-	// Write output to file if requested
+	// Write output to file if requested, or stdout
+	var out *os.File
 	if cfg.OutputFile != "" {
-		out, err := os.Create(cfg.OutputFile)
+		var err error
+		out, err = os.Create(cfg.OutputFile)
 		if err != nil {
 			return fmt.Errorf("create output file: %w", err)
 		}
 		defer out.Close()
+	} else {
+		out = os.Stdout
+	}
 
-		encoder := json.NewEncoder(out)
-		for _, vf := range validated {
-			if err := encoder.Encode(vf); err != nil {
-				return fmt.Errorf("encode validated finding: %w", err)
-			}
+	encoder := json.NewEncoder(out)
+	for _, vf := range validated {
+		if err := encoder.Encode(vf); err != nil {
+			return fmt.Errorf("encode validated finding: %w", err)
 		}
-		fmt.Printf("Wrote validated output to: %s\n", cfg.OutputFile)
+	}
+	if cfg.OutputFile != "" {
+		fmt.Fprintf(os.Stderr, "Wrote validated output to: %s\n", cfg.OutputFile)
 	}
 
 	// Optional Tier 2 step: triage runs strictly AFTER the gate has written its
@@ -165,7 +171,7 @@ func runValidate(cmd *cobra.Command, args []string) error {
 		if err != nil {
 			return fmt.Errorf("triage after validation: %w", err)
 		}
-		fmt.Printf("Saved triage results to: %s/%s\n", ws.Dir, workspace.TriageFile)
+		fmt.Fprintf(os.Stderr, "Saved triage results to: %s/%s\n", ws.Dir, workspace.TriageFile)
 		printTriageSummary(report)
 	}
 

@@ -119,7 +119,7 @@ func runTriage(cmd *cobra.Command, args []string) error {
 		if err := ws.SaveArtifact(workspace.TriageFile, report); err != nil {
 			return fmt.Errorf("save triage artifact: %w", err)
 		}
-		fmt.Printf("Saved triage results to: %s/%s\n", ws.Dir, workspace.TriageFile)
+		fmt.Fprintf(os.Stderr, "Saved triage results to: %s/%s\n", ws.Dir, workspace.TriageFile)
 	}
 
 	printTriageSummary(report)
@@ -132,7 +132,7 @@ func runTriage(cmd *cobra.Command, args []string) error {
 		if err := os.WriteFile(cfg.OutputFile, data, 0644); err != nil {
 			return fmt.Errorf("write output file: %w", err)
 		}
-		fmt.Printf("Wrote triage JSON to %s\n", cfg.OutputFile)
+		fmt.Fprintf(os.Stderr, "Wrote triage JSON to %s\n", cfg.OutputFile)
 	}
 
 	fmt.Println("\ntriage.json is ranking only. validated_findings.json remains the report source of truth.")

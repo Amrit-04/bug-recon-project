@@ -109,20 +109,20 @@ func runFuzz(cmd *cobra.Command, args []string) error {
 		if err := ws.SaveArtifact(workspace.FuzzFile, results); err != nil {
 			return fmt.Errorf("save fuzz artifact: %w", err)
 		}
-		fmt.Printf("Saved %d discovered paths to: %s/%s\n", len(results), ws.Dir, workspace.FuzzFile)
+		fmt.Fprintf(os.Stderr, "Saved %d discovered paths to: %s/%s\n", len(results), ws.Dir, workspace.FuzzFile)
 	}
 
+	values := make([]any, 0, len(results))
+	for _, r := range results {
+		values = append(values, r)
+	}
+	if err := writeJSONL(cfg.OutputFile, values); err != nil {
+		return err
+	}
 	if cfg.OutputFile != "" {
-		values := make([]any, 0, len(results))
-		for _, r := range results {
-			values = append(values, r)
-		}
-		if err := writeJSONL(cfg.OutputFile, values); err != nil {
-			return err
-		}
-		fmt.Printf("Wrote %d path candidates to %s\n", len(results), cfg.OutputFile)
+		fmt.Fprintf(os.Stderr, "Wrote %d path candidates to %s\n", len(results), cfg.OutputFile)
 	}
 
-	fmt.Printf("Content discovery complete: %d candidate paths (candidates only, not findings)\n", len(results))
+	fmt.Fprintf(os.Stderr, "Content discovery complete: %d candidate paths (candidates only, not findings)\n", len(results))
 	return nil
 }

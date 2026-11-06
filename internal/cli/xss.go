@@ -119,20 +119,20 @@ func runXSS(cmd *cobra.Command, args []string) error {
 		if err != nil {
 			return fmt.Errorf("persist dalfox candidates: %w", err)
 		}
-		fmt.Printf("Appended %d new dalfox candidates to: %s/%s\n", added, ws.Dir, workspace.RawFindingsFile)
+		fmt.Fprintf(os.Stderr, "Appended %d new dalfox candidates to: %s/%s\n", added, ws.Dir, workspace.RawFindingsFile)
 	}
 
+	values := make([]any, 0, len(candidates))
+	for _, c := range candidates {
+		values = append(values, c)
+	}
+	if err := writeJSONL(cfg.OutputFile, values); err != nil {
+		return err
+	}
 	if cfg.OutputFile != "" {
-		values := make([]any, 0, len(candidates))
-		for _, c := range candidates {
-			values = append(values, c)
-		}
-		if err := writeJSONL(cfg.OutputFile, values); err != nil {
-			return err
-		}
-		fmt.Printf("Wrote %d candidate findings to %s\n", len(candidates), cfg.OutputFile)
+		fmt.Fprintf(os.Stderr, "Wrote %d candidate findings to %s\n", len(candidates), cfg.OutputFile)
 	}
 
-	fmt.Printf("XSS probing complete: %d candidates (must pass scoutr validate before reporting)\n", len(candidates))
+	fmt.Fprintf(os.Stderr, "XSS probing complete: %d candidates (must pass scoutr validate before reporting)\n", len(candidates))
 	return nil
 }

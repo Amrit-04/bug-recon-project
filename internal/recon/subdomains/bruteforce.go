@@ -2,14 +2,22 @@ package subdomains
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"fmt"
 	"net"
+	"os"
 	"strings"
 	"sync"
 
 	"github.com/scoutr/scoutr/internal/scope"
 )
+
+type hostResolver interface {
+	LookupHost(ctx context.Context, host string) ([]string, error)
+}
+
+var defaultResolver hostResolver = net.DefaultResolver
 
 // BruteForce performs DNS brute force enumeration using a wordlist.
 // For each in-scope domain, it tries each wordlist entry as a subdomain.
@@ -27,13 +35,22 @@ func BruteForce(ctx context.Context, s *scope.Scope, wordlistPath string) ([]str
 	// Use a semaphore to limit concurrency
 	sem := make(chan struct{}, 50) // 50 concurrent DNS lookups
 
-	// Process each base domain
+	// Deduplicate base domains
+	seenDomains := make(map[string]bool)
+	var baseDomains []string
 	for _, domain := range s.InScope {
-		// Skip wildcards
+		domain = strings.TrimSpace(strings.ToLower(domain))
 		if strings.HasPrefix(domain, "*.") {
 			domain = domain[2:]
 		}
+		if domain != "" && !seenDomains[domain] {
+			seenDomains[domain] = true
+			baseDomains = append(baseDomains, domain)
+		}
+	}
 
+	// Process each base domain
+	for _, domain := range baseDomains {
 		// Try each wordlist entry
 		for _, prefix := range wordlist {
 			subdomain := fmt.Sprintf("%s.%s", prefix, domain)
@@ -54,7 +71,7 @@ func BruteForce(ctx context.Context, s *scope.Scope, wordlistPath string) ([]str
 				defer func() { <-sem }()
 
 				// Try to resolve
-				_, err := net.DefaultResolver.LookupHost(ctx, target)
+				_, err := defaultResolver.LookupHost(ctx, target)
 				if err == nil {
 					// DNS resolved - subdomain exists
 					mu.Lock()
@@ -67,10 +84,13 @@ func BruteForce(ctx context.Context, s *scope.Scope, wordlistPath string) ([]str
 
 	wg.Wait()
 
-	// Filter by scope
+	// Filter by scope and deduplicate
+	seenFound := make(map[string]bool)
 	var inScope []string
 	for _, subdomain := range found {
-		if s.IsInScope(subdomain) {
+		subdomain = strings.ToLower(strings.TrimSpace(subdomain))
+		if subdomain != "" && !seenFound[subdomain] && s.IsInScope(subdomain) {
+			seenFound[subdomain] = true
 			inScope = append(inScope, subdomain)
 		}
 	}
@@ -80,19 +100,19 @@ func BruteForce(ctx context.Context, s *scope.Scope, wordlistPath string) ([]str
 
 // loadWordlist loads the wordlist from the embedded default or a file.
 func loadWordlist(path string) ([]string, error) {
+	var rawData []byte
 	if path == "embedded" || path == "" {
-		// Use embedded wordlist
-		return strings.Split(DefaultWordlist, "\n"), nil
-	}
-
-	// Load from file
-	data, err := readFile(path)
-	if err != nil {
-		return nil, err
+		rawData = []byte(DefaultWordlist)
+	} else {
+		data, err := readFile(path)
+		if err != nil {
+			return nil, err
+		}
+		rawData = data
 	}
 
 	var words []string
-	scanner := bufio.NewScanner(strings.NewReader(string(data)))
+	scanner := bufio.NewScanner(bytes.NewReader(rawData))
 	for scanner.Scan() {
 		word := strings.TrimSpace(scanner.Text())
 		if word != "" && !strings.HasPrefix(word, "#") {
@@ -103,8 +123,7 @@ func loadWordlist(path string) ([]string, error) {
 	return words, nil
 }
 
-// readFile is a placeholder for reading files (will use os.ReadFile in tests)
+// readFile reads a file from disk.
 func readFile(path string) ([]byte, error) {
-	// This will be replaced with os.ReadFile in actual implementation
-	return nil, fmt.Errorf("not implemented")
+	return os.ReadFile(path)
 }

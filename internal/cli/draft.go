@@ -2,6 +2,7 @@ package cli
 
 import (
 	"fmt"
+	"os"
 	"sort"
 	"strings"
 
@@ -157,10 +158,10 @@ func runReportDraft(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("save draft index: %w", err)
 	}
 
-	fmt.Printf("\nDrafted %d findings (skipped %d).\n", len(entries), skipped)
-	fmt.Printf("Draft manifest: %s\n", indexPath)
-	fmt.Println("\nThese drafts are NOT submission-ready and were not sent anywhere.")
-	fmt.Printf("A human must run: scoutr submit --require-approval --from %s\n", reportFromRun)
+	fmt.Fprintf(os.Stderr, "\nDrafted %d findings (skipped %d).\n", len(entries), skipped)
+	fmt.Fprintf(os.Stderr, "Draft manifest: %s\n", indexPath)
+	fmt.Fprintf(os.Stderr, "\nThese drafts are NOT submission-ready and were not sent anywhere.\n")
+	fmt.Fprintf(os.Stderr, "A human must run: scoutr submit --require-approval --from %s\n", reportFromRun)
 	return nil
 }
 

@@ -170,10 +170,10 @@ func runReport(cmd *cobra.Command, args []string) error {
 	if ws != nil {
 		if format == "html" {
 			_ = ws.SaveReportHTML(reportContent)
-			fmt.Printf("Saved HTML report to: %s/%s\n", ws.Dir, workspace.ReportHTMLFile)
+			fmt.Fprintf(os.Stderr, "Saved HTML report to: %s/%s\n", ws.Dir, workspace.ReportHTMLFile)
 		} else {
 			_ = ws.SaveReportMD(reportContent)
-			fmt.Printf("Saved Markdown report to: %s/%s\n", ws.Dir, workspace.ReportMDFile)
+			fmt.Fprintf(os.Stderr, "Saved Markdown report to: %s/%s\n", ws.Dir, workspace.ReportMDFile)
 		}
 	}
 
@@ -182,7 +182,7 @@ func runReport(cmd *cobra.Command, args []string) error {
 		if err := os.WriteFile(cfg.OutputFile, []byte(reportContent), 0644); err != nil {
 			return fmt.Errorf("write output file: %w", err)
 		}
-		fmt.Printf("Report successfully written to %s\n", cfg.OutputFile)
+		fmt.Fprintf(os.Stderr, "Report successfully written to %s\n", cfg.OutputFile)
 	} else if ws == nil {
 		var out io.Writer = os.Stdout
 		fmt.Fprint(out, reportContent)

@@ -109,7 +109,7 @@ func runPorts(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return fmt.Errorf("port discovery: %w", err)
 	}
-	fmt.Printf("naabu discovered %d open ports on %d in-scope hosts\n", len(ports), len(hosts))
+	fmt.Fprintf(os.Stderr, "naabu discovered %d open ports on %d in-scope hosts\n", len(ports), len(hosts))
 
 	if !portsSkipService && len(ports) > 0 {
 		services, err := tools.RunNmapServiceScan(ctx, runner, s, tools.NmapTargets(ports), int(cfg.Rate), logger)
@@ -123,7 +123,7 @@ func runPorts(cmd *cobra.Command, args []string) error {
 		if err := ws.SaveArtifact(workspace.PortsFile, ports); err != nil {
 			return fmt.Errorf("save port artifact: %w", err)
 		}
-		fmt.Printf("Saved port inventory to: %s/%s\n", ws.Dir, workspace.PortsFile)
+		fmt.Fprintf(os.Stderr, "Saved port inventory to: %s/%s\n", ws.Dir, workspace.PortsFile)
 	}
 
 	if portsProbe {
@@ -136,18 +136,18 @@ func runPorts(cmd *cobra.Command, args []string) error {
 				return fmt.Errorf("save httpx artifact: %w", err)
 			}
 		}
-		fmt.Printf("httpx found %d live HTTP endpoints from discovered ports\n", len(live))
+		fmt.Fprintf(os.Stderr, "httpx found %d live HTTP endpoints from discovered ports\n", len(live))
 	}
 
+	values := make([]any, 0, len(ports))
+	for _, p := range ports {
+		values = append(values, p)
+	}
+	if err := writeJSONL(cfg.OutputFile, values); err != nil {
+		return err
+	}
 	if cfg.OutputFile != "" {
-		values := make([]any, 0, len(ports))
-		for _, p := range ports {
-			values = append(values, p)
-		}
-		if err := writeJSONL(cfg.OutputFile, values); err != nil {
-			return err
-		}
-		fmt.Printf("Wrote %d port records to %s\n", len(ports), cfg.OutputFile)
+		fmt.Fprintf(os.Stderr, "Wrote %d port records to %s\n", len(ports), cfg.OutputFile)
 	}
 
 	return nil

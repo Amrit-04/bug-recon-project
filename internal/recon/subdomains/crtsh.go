@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 
@@ -13,7 +14,12 @@ import (
 )
 
 // crtShURL is the crt.sh API endpoint for certificate transparency logs.
-const crtShURL = "https://crt.sh/?q=%%25.%s&output=json"
+var crtShURL = "https://crt.sh/?q=%%25.%s&output=json"
+
+// httpClient executes HTTP requests for crt.sh queries (can be overridden in tests).
+var httpClient = &http.Client{
+	Timeout: 30 * time.Second,
+}
 
 // CRTSHResult represents a single entry from crt.sh.
 type CRTSHResult struct {
@@ -30,17 +36,26 @@ type CRTSHResult struct {
 func FromCRTSH(ctx context.Context, s *scope.Scope) ([]string, error) {
 	var allSubdomains []string
 
-	// Query each in-scope domain
+	// Deduplicate base domains to avoid redundant queries
+	seenDomains := make(map[string]bool)
+	var baseDomains []string
 	for _, domain := range s.InScope {
-		// Skip wildcards - we want the base domain to query
+		domain = strings.TrimSpace(strings.ToLower(domain))
 		if strings.HasPrefix(domain, "*.") {
 			domain = domain[2:]
 		}
+		if domain != "" && !seenDomains[domain] {
+			seenDomains[domain] = true
+			baseDomains = append(baseDomains, domain)
+		}
+	}
 
+	// Query each unique base domain
+	for _, domain := range baseDomains {
 		subdomains, err := queryCRTSH(ctx, domain)
 		if err != nil {
-			// Log warning but continue with other domains
-			fmt.Printf("Warning: crt.sh query for %s failed: %v\n", domain, err)
+			// Log warning to stderr but continue with other domains
+			fmt.Fprintf(os.Stderr, "Warning: crt.sh query for %s failed: %v\n", domain, err)
 			continue
 		}
 
@@ -80,13 +95,8 @@ func queryCRTSH(ctx context.Context, domain string) ([]string, error) {
 	// Set User-Agent
 	req.Header.Set("User-Agent", "scoutr/1.0 (security research)")
 
-	// Create HTTP client with timeout
-	client := &http.Client{
-		Timeout: 30 * time.Second,
-	}
-
 	// Execute request
-	resp, err := client.Do(req)
+	resp, err := httpClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("execute request: %w", err)
 	}

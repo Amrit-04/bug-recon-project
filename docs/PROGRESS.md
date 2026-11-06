@@ -480,3 +480,95 @@ The ffuf path wordlist (`internal/tools/wordlist_paths.txt`) is `//go:embed`-ed 
 
 
 
+---
+
+## Milestone 7: Subdomain Reconnaissance Hardening & Stream Cleanliness ✅
+
+### What Was Built & Fixed
+
+1. **Subdomains Package Hardening (`internal/recon/subdomains`)**:
+   - Fixed `readFile` placeholder in `bruteforce.go` that returned `not implemented`, enabling custom `--wordlist` files.
+   - Refactored `loadWordlist` with `bufio.Scanner` to properly trim carriage returns (`\r`), whitespace, empty lines, and `#` comment lines for both embedded and file wordlists.
+   - Deduplicated base domains before crt.sh API calls and DNS resolution so scopes with both `example.com` and `*.example.com` do not execute redundant lookups.
+   - Routed crt.sh query warnings to `os.Stderr` rather than polluting `os.Stdout`.
+   - Added `hostResolver` and testable HTTP client overrides for deterministic, offline testing without real DNS or network queries.
+   - Added `subdomains_test.go` with 100% deterministic unit tests covering wordlist loading, crt.sh query simulation, scope filtering, DNS resolution, and context cancellation (package coverage: 96.1%).
+
+2. **Stdout Stream Cleanliness (`internal/cli`)**:
+   - Fixed commands (`ports`, `fuzz`, `xss`, `validate`, `report`, `draft`) that used `fmt.Printf` for progress or completion summaries. All narration now routes to `os.Stderr`.
+   - Fixed `ports`, `fuzz`, `xss`, and `validate` omitting stdout data when `-o` was not specified. Structured JSONL records are now reliably emitted to stdout by default, enabling clean piping into `jq` or downstream tools.
+   - Added `internal/cli/cli_test.go` verifying `--dry-run` modes, target file decoding, finding deduplication, validation gate execution, and report generation (package coverage increased from 19.9% to 36.3%).
+
+3. **Workspace Persistence Test Coverage (`internal/workspace`)**:
+   - Added test coverage in `workspace_test.go` for `SaveArtifact`, `LoadArtifact`, `safeArtifactName` directory traversal rejection, `ListDrafts`, JSONL loading with BOM, and `SanitizeTarget` (package coverage increased from 57.4% to 85.2%).
+
+4. **Codebase Hygiene**:
+   - Formatted `internal/recon/probe/probe_test.go` with `gofmt -s -w` so `gofmt -l .` and CI `make fmt-check` pass cleanly.
+
+---
+
+## Milestone 8: Unified Web Dashboard & Local REST API (`scoutr ui`) ✅
+
+### What Was Built
+
+1. **Modern Decoupled React SPA Dashboard (`web/`)**:
+   - Built a cybersecurity-focused dark-theme dashboard with React 18, Vite, Tailwind CSS, and Lucide icons.
+   - **Run Selector Header**: Switch seamlessly between historical and active workspace runs under `.scoutr/runs/`.
+   - **Overview Dashboard**: High-level KPIs (Verified, Needs Review, Suppressed, Discovered Ports, Live HTTP Hosts), severity breakdown, and identified tech stack badges.
+   - **Attack Surface Explorer**: Sub-tabs for Ports & Services (`ports.json`), Live HTTP endpoints (`httpx.json`), Crawled links (`crawl.json`), Fuzzed paths (`fuzz.json`), and Target Inventory (`inventory.json`).
+   - **7-Check Gate Findings Matrix**: Filterable findings table with severity & status filters, search bar, and slide-over evidence inspector (with Gate 1-7 result breakdown, redacted request/response viewers, impact analysis, and remediation).
+   - **Tier 2 AI Triage View**: Inspects LLM classifications (`likely_true`, `needs_human`, `likely_false`), confidence meters, model rationale, manual test recommendations, and deterministic hard-rule veto badges.
+   - **Drafts & Human Approval Studio**: Previews generated Markdown drafts (`reports/drafts/*.md`), displays `submission_ready.json`, and upholds Tier 3 human approval requirements.
+   - **Interactive Scope Guard**: Inspects in-scope and out-of-scope policies with a live domain/URL tester.
+
+2. **Backend REST API & Embedded Asset Server (`internal/server`)**:
+   - Implemented `internal/server` exposing local JSON REST endpoints (`/api/scope`, `/api/runs`, `/api/runs/{id}/*`).
+   - Integrated Go `embed.FS` via `web.DistFS()` to embed compiled production SPA assets directly into the Go binary.
+   - Implemented SPA fallback routing so all non-API paths resolve to `index.html`.
+   - Enforced strict run ID and artifact path validation to prevent path traversal.
+   - Added unit test suite `internal/server/server_test.go` covering API endpoints, 404s, invalid IDs, SPA routing, and server lifecycle (75.2% coverage).
+
+3. **CLI Command (`scoutr ui`)**:
+   - Added `scoutr ui` in `internal/cli/ui.go` with configurable `--port` (default 8080), `--host` (default 127.0.0.1), `--from`, `--runs-dir`, and `--no-browser`.
+   - Opens the dashboard in the operator's default browser automatically with graceful Ctrl+C shutdown.
+   - Added `TestUICommand` in `internal/cli/cli_test.go`.
+
+---
+
+## Milestone 9: LM Studio & llama.cpp Integration, Modern Triage Studio UI, and Vitest Frontend Testing Suite ✅
+
+### What Was Built
+
+1. **Native LM Studio & llama.cpp Local Model Providers (`internal/triage`)**:
+   - Added first-class support for `lmstudio` (default endpoint `http://127.0.0.1:1234/v1`) and `llamacpp` (default endpoint `http://127.0.0.1:8080/v1`) in `internal/triage/client.go`.
+   - Updated `OpenAIClient` to retain provider identity and completions endpoint routing (`/v1/chat/completions` or `/chat/completions`).
+   - Updated CLI flag help text in `internal/cli/llmflags.go` to explicitly document `ollama`, `lmstudio`, `llamacpp`, and `openai`.
+   - Created `internal/triage/client_test.go` verifying provider initialization, default endpoints, endpoint validation, and mock HTTP completion roundtrips for LM Studio and llama.cpp.
+
+2. **Local Model Probing & Interactive Triage API (`internal/server`)**:
+   - `GET /api/llm/providers`: Exposes available providers, default ports, descriptions, and recommended model identifiers.
+   - `POST /api/llm/test`: Safely probes local model servers (GET `/v1/models` or `/api/tags`) with a 4-second timeout, returning connection status and discovered loaded model IDs.
+   - `POST /api/runs/{id}/triage`: Executes Tier 2 triage directly on a workspace run using the operator's selected local provider and model, persisting `triage.json` and returning the updated report.
+   - Added `TriageRunnerFunc` dependency injection to `server.Config` for deterministic unit testing without external network dependencies.
+   - Extended `internal/server/server_test.go` covering provider listing, endpoint probing, and interactive triage execution.
+
+3. **Modern Local LLM Triage Studio UI (`web/src/App.jsx`)**:
+   - Built a sleek, glassmorphism **Local LLM Triage Studio** control center directly into the web dashboard:
+     - **Provider Selection Pills**: LM Studio (`:1234`), llama.cpp (`:8080`), Ollama (`:11434`), and OpenAI/Custom.
+     - **Connection Prober & Model Discovery**: "Test Link" button queries the local model daemon, displaying connection health badges and populating loaded models into a dropdown.
+     - **Model Quick Presets**: Instant-select pills for popular local models (`llama-3.2-3b-instruct`, `qwen2.5-coder-7b-instruct`, `mistral-7b-instruct-v0.3`).
+     - **Interactive Triage Trigger**: "Run AI Triage" button with animated progress bars, evaluating batched evidence and immediately updating verdicts and charts without leaving the browser.
+     - **Interactive Setup Guides**: Collapsible accordion explaining how to start LM Studio Developer Server, native `llama-server`, or Ollama.
+     - **Deterministic Guard Callout**: Visual badge guaranteeing that the scope file and raw target lists are never exposed to the LLM, and that 7-Check Readiness Gate verdicts cannot be altered or suppressed.
+     - **Interactive Verdict Table**: Filter by classification (`likely_true`, `needs_human`, `likely_false`), confidence meters, rationale, and one-click manual test command copy buttons.
+
+4. **Frontend Unit & Integration Testing Suite (`web/`)**:
+   - Configured Vitest + `@testing-library/react` + `jsdom` + `@testing-library/jest-dom` in `web/`.
+   - Created comprehensive test suite `web/src/App.test.jsx`:
+     - Dashboard header rendering & Scope Guard Active status check.
+     - Tab navigation between Overview, Recon, Findings, AI Triage, and Scope Guard.
+     - LM Studio & llama.cpp provider switching and endpoint auto-configuration.
+     - Local LLM connection testing (`/api/llm/test`).
+     - Interactive AI triage execution and verdict rendering (`/api/runs/{id}/triage`).
+     - In-scope and out-of-scope interactive verification against YAML scope policies.
+   - All 6 frontend tests pass with 0 errors (`npm test`).
