@@ -117,6 +117,33 @@ describe('App Dashboard & Local LLM Integration', () => {
       if (urlStr.endsWith('/submission_ready')) {
         return Promise.resolve({ ok: true, json: () => Promise.resolve(null) });
       }
+      if (urlStr.endsWith('/api/tools')) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve([
+            { Binary: 'naabu', Installed: true, Version: '2.3.1', Description: 'Port scanner' },
+            { Binary: 'httpx', Installed: true, Version: '1.6.0', Description: 'Web prober' }
+          ])
+        });
+      }
+      if (urlStr.endsWith('/api/scan/status')) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ running: false, stage_index: 0, logs: [] })
+        });
+      }
+      if (urlStr.endsWith('/api/scan') && options?.method === 'POST') {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ status: 'started', target: 'test.com' })
+        });
+      }
+      if (urlStr.includes('/tools/') && options?.method === 'POST') {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ status: 'success', count: 5, result: ['sub.test.com'] })
+        });
+      }
       if (urlStr.endsWith('/api/llm/test') && options?.method === 'POST') {
         return Promise.resolve({
           ok: true,
@@ -222,5 +249,53 @@ describe('App Dashboard & Local LLM Integration', () => {
     // Out-of-scope test
     fireEvent.change(input, { target: { value: 'admin.example.com' } });
     expect(await screen.findByText(/OUT OF SCOPE: Matched out_of_scope blacklist rule/i)).toBeInTheDocument();
+  });
+
+  it('opens New Scan modal and starts a scan', async () => {
+    render(<App />);
+
+    // Click "New Scan" button in header
+    const newScanBtn = await screen.findByRole('button', { name: /New Scan/i });
+    fireEvent.click(newScanBtn);
+
+    // Verify modal title appears
+    expect(await screen.findByText('Start New Security Scan')).toBeInTheDocument();
+
+    // Input target domain
+    const targetInput = screen.getByPlaceholderText(/e\.g\. example\.com or app\.target\.com/i);
+    fireEvent.change(targetInput, { target: { value: 'test.com' } });
+
+    // Click "Start Security Scan"
+    const startBtn = screen.getByRole('button', { name: /Start Security Scan/i });
+    fireEvent.click(startBtn);
+
+    // Modal should close and active scan progress should be displayed
+    await waitFor(() => {
+      expect(screen.queryByText('Start New Security Scan')).not.toBeInTheDocument();
+    });
+  });
+
+  it('navigates to Tools Center and executes an individual tool on demand', async () => {
+    render(<App />);
+
+    // Click Tools Center tab
+    const toolsBtn = await screen.findByRole('button', { name: /Tools Center/i });
+    fireEvent.click(toolsBtn);
+
+    // Verify tools center header & tool cards
+    expect(await screen.findByText('Security Tools Center')).toBeInTheDocument();
+    expect(screen.getByText('Subdomain Finder')).toBeInTheDocument();
+    expect(screen.getByText('Port & Service Scanner')).toBeInTheDocument();
+    expect(screen.getByText('Live Web Prober')).toBeInTheDocument();
+    expect(screen.getByText('7-Check Readiness Gate')).toBeInTheDocument();
+
+    // Run Subdomain Finder tool
+    const runSubdomainBtn = screen.getByRole('button', { name: /Discover Subdomains/i });
+    fireEvent.click(runSubdomainBtn);
+
+    // Verify execution success feedback badge appears
+    await waitFor(() => {
+      expect(screen.getByText(/Tool executed successfully/i)).toBeInTheDocument();
+    });
   });
 });

@@ -12,10 +12,13 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/scoutr/scoutr/internal/findings"
+	"github.com/scoutr/scoutr/internal/pipeline"
 	"github.com/scoutr/scoutr/internal/scope"
+	"github.com/scoutr/scoutr/internal/tools"
 	"github.com/scoutr/scoutr/internal/triage"
 	"github.com/scoutr/scoutr/internal/validate"
 	"github.com/scoutr/scoutr/internal/workspace"
@@ -31,6 +34,7 @@ type Config struct {
 	ScopeFile    string
 	Addr         string
 	TriageRunner TriageRunnerFunc
+	Runner       tools.CommandRunner
 }
 
 // Server provides the local HTTP API and serves the embedded SPA dashboard.
@@ -40,6 +44,53 @@ type Server struct {
 	httpServer   *http.Server
 	distFS       fs.FS
 	triageRunner TriageRunnerFunc
+	runner       tools.CommandRunner
+
+	scanMu     sync.RWMutex
+	scanStatus ScanStatus
+	scanCancel context.CancelFunc
+}
+
+// ScanStatus tracks real-time progress, stages, and logs of an active or recent scan.
+type ScanStatus struct {
+	Running     bool     `json:"running"`
+	RunID       string   `json:"run_id,omitempty"`
+	Target      string   `json:"target,omitempty"`
+	StageIndex  int      `json:"stage_index"`
+	TotalStages int      `json:"total_stages"`
+	StageName   string   `json:"stage_name,omitempty"`
+	Detail      string   `json:"detail,omitempty"`
+	Error       string   `json:"error,omitempty"`
+	Logs        []string `json:"logs"`
+	StartTime   string   `json:"start_time,omitempty"`
+	EndTime     string   `json:"end_time,omitempty"`
+}
+
+// StartScanRequest defines payload for initiating an automated security scan.
+type StartScanRequest struct {
+	Target     string   `json:"target"`
+	InScope    []string `json:"in_scope,omitempty"`
+	OutOfScope []string `json:"out_of_scope,omitempty"`
+	ScanMode   string   `json:"scan_mode,omitempty"` // "standard", "passive", "custom"
+	SkipPorts  bool     `json:"skip_ports,omitempty"`
+	SkipCrawl  bool     `json:"skip_crawl,omitempty"`
+	SkipFuzz   bool     `json:"skip_fuzz,omitempty"`
+	SkipXSS    bool     `json:"skip_xss,omitempty"`
+	SkipNuclei bool     `json:"skip_nuclei,omitempty"`
+	NucleiTags []string `json:"nuclei_tags,omitempty"`
+	RateLimit  int      `json:"rate_limit,omitempty"`
+	DryRun     bool     `json:"dry_run,omitempty"`
+}
+
+// ToolRunRequest defines optional overrides when triggering a specific tool on demand.
+type ToolRunRequest struct {
+	InScope    []string `json:"in_scope,omitempty"`
+	OutOfScope []string `json:"out_of_scope,omitempty"`
+	RateLimit  int      `json:"rate_limit,omitempty"`
+	TopPorts   int      `json:"top_ports,omitempty"`
+	Depth      int      `json:"depth,omitempty"`
+	MaxFuzz    int      `json:"max_fuzz,omitempty"`
+	Tags       []string `json:"tags,omitempty"`
 }
 
 // RunSummary represents high-level metadata for a single audit run.
@@ -69,10 +120,16 @@ func New(cfg Config) (*Server, error) {
 		triageRunner = triage.Run
 	}
 
+	runner := cfg.Runner
+	if runner == nil {
+		runner = tools.NewExecRunner()
+	}
+
 	s := &Server{
 		cfg:          cfg,
 		distFS:       dist,
 		triageRunner: triageRunner,
+		runner:       runner,
 	}
 
 	return s, nil
@@ -129,6 +186,10 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/api/scope", s.handleScope)
 	mux.HandleFunc("/api/runs", s.handleRuns)
 	mux.HandleFunc("/api/runs/", s.handleRunArtifacts)
+	mux.HandleFunc("/api/scan", s.handleStartScan)
+	mux.HandleFunc("/api/scan/status", s.handleScanStatus)
+	mux.HandleFunc("/api/scan/cancel", s.handleScanCancel)
+	mux.HandleFunc("/api/tools", s.handleTools)
 	mux.HandleFunc("/api/llm/providers", s.handleLLMProviders)
 	mux.HandleFunc("/api/llm/test", s.handleLLMTest)
 
@@ -264,10 +325,14 @@ func (s *Server) handleRunArtifacts(w http.ResponseWriter, r *http.Request) {
 
 	artifact := parts[1]
 
-	// Handle POST actions for runs (e.g. interactive Tier 2 AI Triage)
+	// Handle POST actions for runs (e.g. interactive Tier 2 AI Triage or modular tool runs)
 	if r.Method == http.MethodPost {
 		if artifact == "triage" {
 			s.handleRunTriage(w, r, ws)
+			return
+		}
+		if artifact == "tools" && len(parts) >= 3 && parts[2] != "" {
+			s.handleRunTool(w, r, ws, parts[2])
 			return
 		}
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -703,4 +768,262 @@ func (s *Server) handleLLMTest(w http.ResponseWriter, r *http.Request) {
 		Endpoint: endpoint,
 		Models:   modelNames,
 	})
+}
+
+// handleStartScan initiates a full or custom security scan in the background.
+func (s *Server) handleStartScan(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req StartScanRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil && err != io.EOF {
+		http.Error(w, fmt.Sprintf("invalid JSON payload: %v", err), http.StatusBadRequest)
+		return
+	}
+
+	target := strings.TrimSpace(req.Target)
+	target = strings.TrimPrefix(target, "https://")
+	target = strings.TrimPrefix(target, "http://")
+	target = strings.TrimRight(target, "/")
+	if target == "" {
+		http.Error(w, "target domain or hostname is required", http.StatusBadRequest)
+		return
+	}
+
+	inScope := req.InScope
+	if len(inScope) == 0 {
+		if s.cfg.ScopeFile != "" {
+			if sc, err := scope.LoadFromFile(s.cfg.ScopeFile); err == nil && len(sc.InScope) > 0 {
+				inScope = sc.InScope
+			}
+		}
+	}
+	if len(inScope) == 0 {
+		inScope = []string{target, "*." + target}
+	}
+
+	sc := scope.New(inScope, req.OutOfScope)
+
+	s.scanMu.Lock()
+	if s.scanStatus.Running {
+		s.scanMu.Unlock()
+		http.Error(w, "a scan is already in progress", http.StatusConflict)
+		return
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	s.scanCancel = cancel
+	s.scanStatus = ScanStatus{
+		Running:     true,
+		Target:      target,
+		StageIndex:  0,
+		TotalStages: 8,
+		StageName:   "starting",
+		Detail:      fmt.Sprintf("Initializing scan pipeline for %s...", target),
+		Logs:        []string{fmt.Sprintf("[%s] Initializing security scan for target: %s", time.Now().Format("15:04:05"), target)},
+		StartTime:   time.Now().Format("2006-01-02 15:04:05"),
+	}
+	s.scanMu.Unlock()
+
+	go func() {
+		defer cancel()
+		logFunc := func(format string, args ...any) {
+			line := fmt.Sprintf("[%s] %s", time.Now().Format("15:04:05"), fmt.Sprintf(format, args...))
+			s.scanMu.Lock()
+			s.scanStatus.Logs = append(s.scanStatus.Logs, line)
+			if len(s.scanStatus.Logs) > 1000 {
+				s.scanStatus.Logs = s.scanStatus.Logs[len(s.scanStatus.Logs)-1000:]
+			}
+			s.scanMu.Unlock()
+		}
+		progFunc := func(stage int, stageName string, detail string) {
+			s.scanMu.Lock()
+			s.scanStatus.StageIndex = stage
+			s.scanStatus.StageName = stageName
+			s.scanStatus.Detail = detail
+			s.scanMu.Unlock()
+		}
+
+		opts := pipeline.Options{
+			Scope:       sc,
+			Target:      target,
+			RunsDir:     s.cfg.RunsDir,
+			SkipPorts:   req.SkipPorts || (req.ScanMode == "passive"),
+			SkipCrawl:   req.SkipCrawl || (req.ScanMode == "passive"),
+			SkipFuzz:    req.SkipFuzz || (req.ScanMode == "passive"),
+			SkipXSS:     req.SkipXSS || (req.ScanMode == "passive"),
+			SkipNuclei:  req.SkipNuclei || (req.ScanMode == "passive"),
+			External:    true,
+			PassiveOnly: req.ScanMode == "passive",
+			Rate:        req.RateLimit,
+			DryRun:      req.DryRun,
+			Runner:      s.runner,
+			Log:         logFunc,
+			OnProgress:  progFunc,
+		}
+
+		res, runErr := pipeline.Run(ctx, opts)
+		s.scanMu.Lock()
+		s.scanStatus.Running = false
+		s.scanStatus.EndTime = time.Now().Format("2006-01-02 15:04:05")
+		if runErr != nil {
+			s.scanStatus.Error = runErr.Error()
+			s.scanStatus.Detail = "Scan stopped: " + runErr.Error()
+			s.scanStatus.Logs = append(s.scanStatus.Logs, fmt.Sprintf("[%s] Scan ERROR: %v", time.Now().Format("15:04:05"), runErr))
+		} else if res != nil && res.Workspace != nil {
+			s.scanStatus.RunID = filepath.Base(res.Workspace.Dir)
+			s.scanStatus.Detail = res.Summary
+			s.scanStatus.Logs = append(s.scanStatus.Logs, fmt.Sprintf("[%s] Scan finished successfully. Workspace run: %s", time.Now().Format("15:04:05"), s.scanStatus.RunID))
+		}
+		s.scanMu.Unlock()
+	}()
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"status": "started",
+		"target": target,
+	})
+}
+
+// handleScanStatus returns current scan progress, stages, and recent execution logs.
+func (s *Server) handleScanStatus(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	s.scanMu.RLock()
+	status := s.scanStatus
+	s.scanMu.RUnlock()
+
+	writeJSON(w, http.StatusOK, status)
+}
+
+// handleScanCancel terminates the currently running security scan.
+func (s *Server) handleScanCancel(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	s.scanMu.Lock()
+	if s.scanStatus.Running && s.scanCancel != nil {
+		s.scanCancel()
+		s.scanStatus.Running = false
+		s.scanStatus.Detail = "Scan cancelled by user"
+		s.scanStatus.Logs = append(s.scanStatus.Logs, fmt.Sprintf("[%s] Scan cancelled by user", time.Now().Format("15:04:05")))
+		s.scanMu.Unlock()
+		writeJSON(w, http.StatusOK, map[string]any{"status": "cancelled"})
+		return
+	}
+	s.scanMu.Unlock()
+
+	writeJSON(w, http.StatusOK, map[string]any{"status": "not_running"})
+}
+
+// handleTools lists installed tools, their status, versions, and installation hints.
+func (s *Server) handleTools(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	statuses := tools.InspectArsenal(r.Context(), s.runner)
+	writeJSON(w, http.StatusOK, statuses)
+}
+
+// handleRunTool executes an individual tool on an existing workspace run.
+func (s *Server) handleRunTool(w http.ResponseWriter, r *http.Request, ws *workspace.Workspace, tool string) {
+	var req ToolRunRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil && err != io.EOF {
+		http.Error(w, fmt.Sprintf("invalid JSON payload: %v", err), http.StatusBadRequest)
+		return
+	}
+
+	var sc *scope.Scope
+	if len(req.InScope) > 0 {
+		sc = scope.New(req.InScope, req.OutOfScope)
+	} else if s.cfg.ScopeFile != "" {
+		sc, _ = scope.LoadFromFile(s.cfg.ScopeFile)
+	}
+	if sc == nil {
+		target := filepath.Base(ws.Dir)
+		if idx := strings.Index(target, "-"); idx != -1 {
+			target = target[:idx]
+		}
+		sc = scope.New([]string{target, "*." + target}, nil)
+	}
+
+	logFunc := func(format string, args ...any) {}
+
+	tool = strings.ToLower(strings.TrimSpace(tool))
+	switch tool {
+	case "subdomains", "recon":
+		hosts, err := pipeline.RunSubdomainsOnly(r.Context(), ws, sc, s.runner, true, false, req.RateLimit, logFunc)
+		if err != nil {
+			http.Error(w, fmt.Sprintf("run subdomains: %v", err), http.StatusInternalServerError)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"tool": tool, "status": "success", "count": len(hosts), "result": hosts})
+
+	case "ports":
+		ports, err := pipeline.RunPortsOnly(r.Context(), ws, sc, s.runner, req.TopPorts, req.RateLimit, false, logFunc)
+		if err != nil {
+			http.Error(w, fmt.Sprintf("run ports: %v", err), http.StatusInternalServerError)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"tool": tool, "status": "success", "count": len(ports), "result": ports})
+
+	case "probe", "httpx":
+		live, err := pipeline.RunProbeOnly(r.Context(), ws, sc, s.runner, req.RateLimit, logFunc)
+		if err != nil {
+			http.Error(w, fmt.Sprintf("run probe: %v", err), http.StatusInternalServerError)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"tool": tool, "status": "success", "count": len(live), "result": live})
+
+	case "crawl", "katana":
+		crawled, err := pipeline.RunCrawlOnly(r.Context(), ws, sc, s.runner, req.Depth, req.RateLimit, logFunc)
+		if err != nil {
+			http.Error(w, fmt.Sprintf("run crawl: %v", err), http.StatusInternalServerError)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"tool": tool, "status": "success", "count": len(crawled), "result": crawled})
+
+	case "fuzz", "ffuf":
+		fuzzed, err := pipeline.RunFuzzOnly(r.Context(), ws, sc, s.runner, req.MaxFuzz, req.RateLimit, logFunc)
+		if err != nil {
+			http.Error(w, fmt.Sprintf("run fuzz: %v", err), http.StatusInternalServerError)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"tool": tool, "status": "success", "count": len(fuzzed), "result": fuzzed})
+
+	case "xss", "dalfox":
+		raw, err := pipeline.RunXSSOnly(r.Context(), ws, sc, s.runner, 20, req.RateLimit, logFunc)
+		if err != nil {
+			http.Error(w, fmt.Sprintf("run xss: %v", err), http.StatusInternalServerError)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"tool": tool, "status": "success", "count": len(raw), "result": raw})
+
+	case "nuclei":
+		raw, err := pipeline.RunNucleiOnly(r.Context(), ws, sc, s.runner, req.RateLimit, logFunc)
+		if err != nil {
+			http.Error(w, fmt.Sprintf("run nuclei: %v", err), http.StatusInternalServerError)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"tool": tool, "status": "success", "count": len(raw), "result": raw})
+
+	case "validate":
+		vf, err := pipeline.RunValidateOnly(r.Context(), ws, sc)
+		if err != nil {
+			http.Error(w, fmt.Sprintf("run validate: %v", err), http.StatusInternalServerError)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"tool": tool, "status": "success", "count": len(vf), "result": vf})
+
+	default:
+		http.Error(w, fmt.Sprintf("unknown tool: %s", tool), http.StatusBadRequest)
+	}
 }

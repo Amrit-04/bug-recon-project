@@ -572,3 +572,54 @@ The ffuf path wordlist (`internal/tools/wordlist_paths.txt`) is `//go:embed`-ed 
      - Interactive AI triage execution and verdict rendering (`/api/runs/{id}/triage`).
      - In-scope and out-of-scope interactive verification against YAML scope policies.
    - All 6 frontend tests pass with 0 errors (`npm test`).
+
+
+---
+
+## Milestone 10: Beginner-Friendly 1-Click Scan Launcher & Modular Security Tools Center ✅
+
+### What Was Built
+
+1. **Decoupled Pipeline & Modular Tool Execution Engine (`internal/pipeline`)**:
+   - Built `internal/pipeline/pipeline.go` implementing `pipeline.Run(ctx, opts)` with progress callback hooks (`OnProgress`), streaming logger (`Log`), and artifact persistence.
+   - Implemented modular, on-demand stage runners callable individually:
+     - `RunSubdomainsOnly`: Subdomain discovery and DNS resolution (`subfinder`, `assetfinder`, `crt.sh`, `dnsx`).
+     - `RunPortsOnly`: Port scanning and light service fingerprinting (`naabu`, `nmap`).
+     - `RunProbeOnly`: HTTP/HTTPS live service probing and tech stack extraction (`httpx`).
+     - `RunCrawlOnly`: Application endpoint and script crawling (`katana`).
+     - `RunFuzzOnly`: Curated wordlist directory and configuration file fuzzing (`ffuf`).
+     - `RunXSSOnly`: Safe parameter reflection probing (`dalfox`).
+     - `RunNucleiOnly`: Safe read-only posture and misconfiguration checks (`nuclei`).
+     - `RunValidateOnly`: Authoritative 7-Check Readiness Gate and report generation (`internal/validate`, `internal/report`).
+   - Added unit test suite `internal/pipeline/pipeline_test.go` verifying dry-run mode, mock runner tool executions, and modular single-stage executions.
+
+2. **Backend Scan & Tool Orchestration REST API (`internal/server`)**:
+   - `POST /api/scan`: Initiates full or custom security scans in the background with automatic scope derivation (`[target, *.target]`).
+   - `GET /api/scan/status`: Real-time scan polling returning active stage index (1..8), current stage name, detail message, and streaming console logs.
+   - `POST /api/scan/cancel`: Gracefully stops the active scan context.
+   - `GET /api/tools`: Inspects host PATH returning installation status, version, and install hints for all arsenal binaries via `tools.InspectArsenal`.
+   - `POST /api/runs/{id}/tools/{tool}`: Triggers an individual security tool on an existing workspace run, automatically reloading and updating workspace artifacts.
+   - Added comprehensive tests in `internal/server/server_test.go` covering all new scan and tool endpoints with mock runners.
+
+3. **Beginner-Friendly UI with Dedicated Tools Center (`web/src/App.jsx`)**:
+   - **"⚡ New Scan" 1-Click Wizard**:
+     - Accessible from the header of any tab.
+     - Operator simply inputs a domain (e.g. `example.com`), selects a preset ("Standard Security Audit (Recommended)", "Passive Recon Only", or "Custom Tool Selection"), and clicks "Start Security Scan".
+     - Scope is automatically created and strictly enforced at the transport layer without requiring command-line configuration.
+   - **Real-Time Visual Stepper & Streaming Console**:
+     - Visual 8-step progress stepper with animated spinners and checkmarks.
+     - Live detail message and collapsible live console terminal with auto-scrolling execution logs.
+     - 1-click "Stop Scan" button.
+     - Automatic workspace run selection upon scan completion.
+   - **Dedicated "Tools Center" Tab**:
+     - Grid of 8 plain-English cards for each tool in Scoutr's arsenal.
+     - Displays live artifact counts, engine details, plain-English descriptions, and 1-click "▶ Run Tool" buttons.
+     - Collapsible Host Tool Arsenal inspector showing which binaries are installed on the local system.
+   - **Optional AI Distinction**:
+     - AI Triage is clearly designated as optional: Scoutr's core reconnaissance, scanning, and the 7-Check Readiness Gate run 100% deterministically and never require an AI model.
+
+4. **Testing & Verification**:
+   - Added frontend tests in `web/src/App.test.jsx` for New Scan modal launching, target submission, and Tools Center execution.
+   - All 8 Vitest frontend tests pass (`npm --prefix web test -- --run`).
+   - All Go package tests pass (`go test ./...`).
+   - Production bundle compiled cleanly into `web/dist/`.

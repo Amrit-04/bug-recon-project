@@ -27,7 +27,12 @@ import {
   Play,
   Sparkles,
   Zap,
-  HelpCircle
+  HelpCircle,
+  Sliders,
+  Wrench,
+  X,
+  ChevronDown,
+  ChevronUp
 } from 'lucide-react';
 
 const SEVERITY_CONFIG = {
@@ -122,6 +127,53 @@ export default function App() {
   const [scopeTestTarget, setScopeTestTarget] = useState('');
   const [scopeTestResult, setScopeTestResult] = useState(null);
   const [copied, setCopied] = useState(false);
+
+  // Security Scan orchestration state
+  const [scanModalOpen, setScanModalOpen] = useState(false);
+  const [scanTargetInput, setScanTargetInput] = useState('');
+  const [scanMode, setScanMode] = useState('standard'); // 'standard' | 'passive' | 'custom'
+  const [customTools, setCustomTools] = useState({
+    ports: true,
+    probe: true,
+    crawl: true,
+    fuzz: true,
+    xss: true,
+    nuclei: true
+  });
+  const [outOfScopeInput, setOutOfScopeInput] = useState('');
+  const [rateLimitInput, setRateLimitInput] = useState(50);
+  const [scanStarting, setScanStarting] = useState(false);
+  const [scanStatus, setScanStatus] = useState({
+    running: false,
+    stage_index: 0,
+    total_stages: 8,
+    stage_name: '',
+    detail: '',
+    logs: [],
+    run_id: '',
+    error: ''
+  });
+  const [showLiveLogs, setShowLiveLogs] = useState(false);
+  const [scanNotice, setScanNotice] = useState(null);
+
+  // Modular tools center state
+  const [toolsArsenal, setToolsArsenal] = useState([]);
+  const [showArsenalDetails, setShowArsenalDetails] = useState(false);
+  const [runningTool, setRunningTool] = useState(null);
+  const [toolFeedback, setToolFeedback] = useState({});
+
+  // Fetch tools arsenal (installed binaries on host)
+  const fetchArsenal = async () => {
+    try {
+      const res = await fetch('/api/tools');
+      if (res.ok) {
+        const data = await res.json();
+        setToolsArsenal(data || []);
+      }
+    } catch (err) {
+      console.error('Failed loading tools arsenal:', err);
+    }
+  };
 
   // Fetch initial runs & scope & LLM providers
   const fetchRunsAndScope = async () => {
@@ -249,52 +301,199 @@ export default function App() {
     }
   };
 
+  // Load data for currently selected run
+  const loadRunData = async () => {
+    if (!selectedRunId) return;
+    try {
+      const [
+        invRes,
+        portsRes,
+        httpxRes,
+        crawlRes,
+        fuzzRes,
+        findingsRes,
+        triageRes,
+        draftsRes,
+        subRes
+      ] = await Promise.all([
+        fetch(`/api/runs/${selectedRunId}/inventory`).then(r => r.ok ? r.json() : []),
+        fetch(`/api/runs/${selectedRunId}/ports`).then(r => r.ok ? r.json() : []),
+        fetch(`/api/runs/${selectedRunId}/httpx`).then(r => r.ok ? r.json() : []),
+        fetch(`/api/runs/${selectedRunId}/crawl`).then(r => r.ok ? r.json() : []),
+        fetch(`/api/runs/${selectedRunId}/fuzz`).then(r => r.ok ? r.json() : []),
+        fetch(`/api/runs/${selectedRunId}/findings`).then(r => r.ok ? r.json() : []),
+        fetch(`/api/runs/${selectedRunId}/triage`).then(r => r.ok ? r.json() : null),
+        fetch(`/api/runs/${selectedRunId}/drafts`).then(r => r.ok ? r.json() : []),
+        fetch(`/api/runs/${selectedRunId}/submission_ready`).then(r => r.ok ? r.json() : null)
+      ]);
+
+      setInventory(invRes || []);
+      setPorts(portsRes || []);
+      setHttpx(httpxRes || []);
+      setCrawl(crawlRes || []);
+      setFuzz(fuzzRes || []);
+      setFindings(findingsRes || []);
+      setTriage(triageRes);
+      setDrafts(draftsRes || []);
+      setSubmissionReady(subRes);
+    } catch (err) {
+      console.error('Failed loading run details:', err);
+    }
+  };
+
+  const handleStartScan = async (e) => {
+    if (e) e.preventDefault();
+    const cleanTarget = scanTargetInput.trim().replace(/^https?:\/\//i, '').replace(/\/+$/, '');
+    if (!cleanTarget) {
+      alert('Please enter a target domain or hostname (e.g. example.com)');
+      return;
+    }
+
+    setScanStarting(true);
+    const exclusions = outOfScopeInput
+      .split(/[,\n]/)
+      .map(s => s.trim())
+      .filter(Boolean);
+
+    const payload = {
+      target: cleanTarget,
+      in_scope: [cleanTarget, `*.${cleanTarget}`],
+      out_of_scope: exclusions,
+      scan_mode: scanMode,
+      skip_ports: scanMode === 'passive' || (scanMode === 'custom' && !customTools.ports),
+      skip_crawl: scanMode === 'passive' || (scanMode === 'custom' && !customTools.crawl),
+      skip_fuzz: scanMode === 'passive' || (scanMode === 'custom' && !customTools.fuzz),
+      skip_xss: scanMode === 'passive' || (scanMode === 'custom' && !customTools.xss),
+      skip_nuclei: scanMode === 'passive' || (scanMode === 'custom' && !customTools.nuclei),
+      rate_limit: parseInt(rateLimitInput, 10) || 50
+    };
+
+    try {
+      const res = await fetch('/api/scan', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      if (!res.ok) {
+        const txt = await res.text();
+        throw new Error(txt || `HTTP ${res.status}`);
+      }
+      setScanModalOpen(false);
+      setScanStatus({
+        running: true,
+        stage_index: 0,
+        total_stages: 8,
+        stage_name: 'starting',
+        target: cleanTarget,
+        detail: `Starting security scan on ${cleanTarget}...`,
+        logs: [`[INFO] Scan initiated for target: ${cleanTarget}`]
+      });
+      setShowLiveLogs(true);
+      setScanNotice(null);
+    } catch (err) {
+      alert(`Failed to start scan: ${err.message}`);
+    } finally {
+      setScanStarting(false);
+    }
+  };
+
+  const handleCancelScan = async () => {
+    try {
+      await fetch('/api/scan/cancel', { method: 'POST' });
+      setScanStatus(prev => ({ ...prev, running: false, detail: 'Scan stopped by user.' }));
+    } catch (err) {
+      console.error('Failed to cancel scan:', err);
+    }
+  };
+
+  const handleExecuteTool = async (toolKey) => {
+    if (!selectedRunId) {
+      alert('Please select or create a workspace run first.');
+      return;
+    }
+    setRunningTool(toolKey);
+    setToolFeedback(prev => ({ ...prev, [toolKey]: null }));
+    try {
+      const res = await fetch(`/api/runs/${selectedRunId}/tools/${toolKey}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({})
+      });
+      if (!res.ok) {
+        const txt = await res.text();
+        throw new Error(txt || `HTTP ${res.status}`);
+      }
+      const data = await res.json();
+      const count = data.count ?? (Array.isArray(data.result) ? data.result.length : 'updated');
+      setToolFeedback(prev => ({
+        ...prev,
+        [toolKey]: { msg: `✓ Tool executed successfully (${count} items recorded)`, isError: false }
+      }));
+      // Reload workspace artifacts to update badges and lists
+      loadRunData();
+      setTimeout(() => {
+        setToolFeedback(prev => ({ ...prev, [toolKey]: null }));
+      }, 7000);
+    } catch (err) {
+      setToolFeedback(prev => ({
+        ...prev,
+        [toolKey]: { msg: `Execution failed: ${err.message}`, isError: true }
+      }));
+    } finally {
+      setRunningTool(null);
+    }
+  };
+
   useEffect(() => {
     fetchRunsAndScope();
+    fetchArsenal();
+
+    // Check if a scan is already active on the server
+    fetch('/api/scan/status')
+      .then(r => r.ok ? r.json() : null)
+      .then(data => {
+        if (data && data.running) {
+          setScanStatus(data);
+          setShowLiveLogs(true);
+        }
+      })
+      .catch(() => {});
   }, []);
+
+  // Poll active scan status
+  useEffect(() => {
+    let interval = null;
+    if (scanStatus.running) {
+      interval = setInterval(async () => {
+        try {
+          const res = await fetch('/api/scan/status');
+          if (res.ok) {
+            const data = await res.json();
+            setScanStatus(data);
+            if (!data.running) {
+              // Scan finished
+              fetchRunsAndScope();
+              if (data.run_id) {
+                setSelectedRunId(data.run_id);
+              }
+              setScanNotice({
+                type: data.error ? 'error' : 'success',
+                msg: data.error ? `Scan stopped with error: ${data.error}` : `Scan finished successfully! Target: ${data.target}`
+              });
+            }
+          }
+        } catch (e) {
+          // ignore network polling blips
+        }
+      }, 1500);
+    }
+    return () => {
+      if (interval) clearInterval(interval);
+    };
+  }, [scanStatus.running]);
 
   // Fetch data for selected run
   useEffect(() => {
-    if (!selectedRunId) return;
-
-    const loadRunData = async () => {
-      try {
-        const [
-          invRes,
-          portsRes,
-          httpxRes,
-          crawlRes,
-          fuzzRes,
-          findingsRes,
-          triageRes,
-          draftsRes,
-          subRes
-        ] = await Promise.all([
-          fetch(`/api/runs/${selectedRunId}/inventory`).then(r => r.ok ? r.json() : []),
-          fetch(`/api/runs/${selectedRunId}/ports`).then(r => r.ok ? r.json() : []),
-          fetch(`/api/runs/${selectedRunId}/httpx`).then(r => r.ok ? r.json() : []),
-          fetch(`/api/runs/${selectedRunId}/crawl`).then(r => r.ok ? r.json() : []),
-          fetch(`/api/runs/${selectedRunId}/fuzz`).then(r => r.ok ? r.json() : []),
-          fetch(`/api/runs/${selectedRunId}/findings`).then(r => r.ok ? r.json() : []),
-          fetch(`/api/runs/${selectedRunId}/triage`).then(r => r.ok ? r.json() : null),
-          fetch(`/api/runs/${selectedRunId}/drafts`).then(r => r.ok ? r.json() : []),
-          fetch(`/api/runs/${selectedRunId}/submission_ready`).then(r => r.ok ? r.json() : null)
-        ]);
-
-        setInventory(invRes || []);
-        setPorts(portsRes || []);
-        setHttpx(httpxRes || []);
-        setCrawl(crawlRes || []);
-        setFuzz(fuzzRes || []);
-        setFindings(findingsRes || []);
-        setTriage(triageRes);
-        setDrafts(draftsRes || []);
-        setSubmissionReady(subRes);
-      } catch (err) {
-        console.error('Failed loading run details:', err);
-      }
-    };
-
     loadRunData();
   }, [selectedRunId]);
 
@@ -398,6 +597,16 @@ export default function App() {
 
           {/* Run Selector & Quick Actions */}
           <div className="flex items-center gap-3">
+            {/* New Scan Launch Button */}
+            <button
+              onClick={() => setScanModalOpen(true)}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-white font-semibold text-xs shadow-md shadow-cyan-500/20 transition cursor-pointer"
+              title="Launch a new automated security scan"
+            >
+              <Zap className="w-3.5 h-3.5 fill-current" />
+              <span>New Scan</span>
+            </button>
+
             <div className="flex items-center gap-2 bg-slate-900/80 border border-slate-700/60 rounded-lg px-3 py-1.5 text-xs">
               <Clock className="w-3.5 h-3.5 text-slate-400" />
               <span className="text-slate-400 font-medium">Audit Run:</span>
@@ -441,11 +650,12 @@ export default function App() {
         <div className="flex gap-1 max-w-7xl mx-auto overflow-x-auto text-sm font-medium">
           {[
             { id: 'overview', label: 'Overview', icon: Activity },
+            { id: 'tools', label: 'Tools Center', icon: Zap, highlight: true },
             { id: 'recon', label: 'Attack Surface', icon: Globe, count: ports.length + httpx.length },
             { id: 'findings', label: 'Readiness Gate & Findings', icon: Shield, count: findings.length },
-            { id: 'triage', label: 'Tier 2 AI Triage', icon: Cpu, count: triage?.verdicts?.length || 0 },
-            { id: 'drafts', label: 'Drafts & Approval (Tier 3)', icon: FileText, count: drafts.length },
-            { id: 'scope', label: 'Scope Guard', icon: Lock }
+            { id: 'drafts', label: 'Drafts & Reports', icon: FileText, count: drafts.length },
+            { id: 'scope', label: 'Scope Guard', icon: Lock },
+            { id: 'triage', label: '(Optional) AI Triage', icon: Cpu, count: triage?.verdicts?.length || 0 }
           ].map(tab => {
             const Icon = tab.icon;
             const active = activeTab === tab.id;
@@ -453,10 +663,12 @@ export default function App() {
               <button
                 key={tab.id}
                 onClick={() => setActiveTab(tab.id)}
-                className={`flex items-center gap-2 py-3 px-4 border-b-2 font-medium transition whitespace-nowrap ${
+                className={`flex items-center gap-2 py-3 px-4 border-b-2 font-medium transition whitespace-nowrap cursor-pointer ${
                   active 
                     ? 'border-cyan-500 text-cyan-400 bg-cyan-500/5' 
-                    : 'border-transparent text-slate-400 hover:text-slate-200 hover:border-slate-700'
+                    : tab.highlight
+                      ? 'border-transparent text-amber-300 hover:text-amber-200 hover:border-amber-400/40'
+                      : 'border-transparent text-slate-400 hover:text-slate-200 hover:border-slate-700'
                 }`}
               >
                 <Icon className="w-4 h-4" />
@@ -474,6 +686,133 @@ export default function App() {
         </div>
       </nav>
 
+      {/* Active Scan Progress Stepper & Live Drawer */}
+      {(scanStatus.running || scanNotice) && (
+        <div className="border-b border-slate-800 bg-[#0d1527] px-6 py-4 shadow-inner">
+          <div className="max-w-7xl mx-auto space-y-3">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="flex items-center gap-3">
+                <div className="p-2 rounded-lg bg-cyan-500/10 text-cyan-400 border border-cyan-500/20">
+                  {scanStatus.running ? (
+                    <RefreshCw className="w-5 h-5 animate-spin" />
+                  ) : scanNotice?.type === 'error' ? (
+                    <AlertTriangle className="w-5 h-5 text-red-400" />
+                  ) : (
+                    <CheckCircle2 className="w-5 h-5 text-emerald-400" />
+                  )}
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs uppercase font-mono font-bold tracking-wider text-cyan-400">
+                      {scanStatus.running ? 'Active Scan in Progress' : 'Scan Finished'}
+                    </span>
+                    {scanStatus.target && (
+                      <span className="text-xs font-mono font-bold text-white bg-slate-800 px-2 py-0.5 rounded border border-slate-700">
+                        {scanStatus.target}
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-xs text-slate-300 mt-0.5 font-medium">
+                    {scanStatus.detail || scanNotice?.msg || 'Running security checks...'}
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setShowLiveLogs(prev => !prev)}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-750 border border-slate-700 text-slate-300 text-xs font-medium transition cursor-pointer"
+                >
+                  <Terminal className="w-3.5 h-3.5" />
+                  <span>{showLiveLogs ? 'Hide Live Logs' : 'View Live Logs'}</span>
+                </button>
+
+                {scanStatus.running ? (
+                  <button
+                    onClick={handleCancelScan}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-red-500/20 hover:bg-red-500/30 border border-red-500/40 text-red-300 text-xs font-semibold transition cursor-pointer"
+                  >
+                    <XCircle className="w-3.5 h-3.5" />
+                    <span>Stop Scan</span>
+                  </button>
+                ) : (
+                  <button
+                    onClick={() => setScanNotice(null)}
+                    className="p-1.5 text-slate-400 hover:text-white rounded-lg hover:bg-slate-800 cursor-pointer"
+                    title="Dismiss"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* 8-Stage Visual Stepper */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-2 pt-1">
+              {[
+                { index: 1, name: 'Scope' },
+                { index: 2, name: 'Subdomains' },
+                { index: 3, name: 'Ports & Svcs' },
+                { index: 4, name: 'Web Probe' },
+                { index: 5, name: 'Katana Crawl' },
+                { index: 6, name: 'FFUF Fuzz' },
+                { index: 7, name: 'Safe Probes' },
+                { index: 8, name: '7-Check Gate' }
+              ].map(stage => {
+                const isDone = scanStatus.stage_index > stage.index || (!scanStatus.running && !scanStatus.error && scanStatus.stage_index >= 8);
+                const isCurrent = scanStatus.running && scanStatus.stage_index === stage.index;
+                return (
+                  <div 
+                    key={stage.index}
+                    className={`flex items-center gap-2 px-2.5 py-1.5 rounded-lg border text-xs font-mono transition ${
+                      isDone 
+                        ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300' 
+                        : isCurrent 
+                          ? 'bg-cyan-500/15 border-cyan-500 text-cyan-200 ring-1 ring-cyan-500/50' 
+                          : 'bg-slate-900/50 border-slate-800 text-slate-500'
+                    }`}
+                  >
+                    {isDone ? (
+                      <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                    ) : isCurrent ? (
+                      <RefreshCw className="w-3.5 h-3.5 text-cyan-400 animate-spin shrink-0" />
+                    ) : (
+                      <span className="w-3.5 h-3.5 flex items-center justify-center text-[10px] rounded-full border border-slate-700 text-slate-500 shrink-0">
+                        {stage.index}
+                      </span>
+                    )}
+                    <span className="truncate">{stage.name}</span>
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Live Log Terminal Accordion */}
+            {showLiveLogs && (
+              <div className="mt-2 rounded-xl bg-slate-950 border border-slate-800/90 p-3 shadow-2xl">
+                <div className="flex items-center justify-between pb-2 mb-2 border-b border-slate-800/80 text-xs text-slate-400 font-mono">
+                  <span className="flex items-center gap-1.5 text-cyan-400 font-semibold">
+                    <Terminal className="w-3.5 h-3.5" /> Live Execution Stream
+                  </span>
+                  <span>{scanStatus.logs?.length || 0} log lines</span>
+                </div>
+                <div className="font-mono text-[11px] text-slate-300 max-h-48 overflow-y-auto space-y-0.5 select-text">
+                  {scanStatus.logs && scanStatus.logs.length > 0 ? (
+                    scanStatus.logs.map((line, idx) => (
+                      <div key={idx} className="leading-relaxed hover:bg-slate-900/40 px-1 rounded">
+                        {line}
+                      </div>
+                    ))
+                  ) : (
+                    <p className="text-slate-500 italic">Awaiting output stream...</p>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Main Content Area */}
       <main className="flex-1 max-w-7xl w-full mx-auto p-6">
         {loading ? (
@@ -486,6 +825,75 @@ export default function App() {
             {/* OVERVIEW TAB */}
             {activeTab === 'overview' && (
               <div className="space-y-6">
+                {/* Empty State Banner when no runs exist */}
+                {runs.length === 0 && (
+                  <div className="p-8 rounded-2xl bg-gradient-to-b from-slate-900 to-slate-950 border border-slate-800 text-center space-y-4 my-4 max-w-2xl mx-auto shadow-2xl">
+                    <div className="w-14 h-14 rounded-2xl bg-gradient-to-tr from-cyan-500 to-blue-600 flex items-center justify-center mx-auto text-white shadow-lg shadow-cyan-500/20">
+                      <Shield className="w-7 h-7" />
+                    </div>
+                    <h3 className="text-xl font-bold text-white">Welcome to scoutr</h3>
+                    <p className="text-sm text-slate-400 leading-relaxed">
+                      scoutr is an automated reconnaissance and vulnerability verification suite.
+                      It runs complete subdomain discovery, port scanning, web application crawling, directory fuzzing,
+                      and 7-check deterministic verification without requiring any computer expertise.
+                    </p>
+                    <div className="pt-2">
+                      <button
+                        onClick={() => setScanModalOpen(true)}
+                        className="inline-flex items-center gap-2 px-6 py-3 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-white font-bold text-sm shadow-xl shadow-cyan-500/25 transition cursor-pointer"
+                      >
+                        <Zap className="w-4 h-4 fill-current" />
+                        <span>Start Your First Security Scan</span>
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {/* Quick Action Shortcuts */}
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <button
+                    onClick={() => setScanModalOpen(true)}
+                    className="p-3.5 rounded-xl bg-gradient-to-r from-cyan-950/40 to-blue-950/40 border border-cyan-800/40 hover:border-cyan-500/60 flex items-center justify-between text-left group transition cursor-pointer"
+                  >
+                    <div>
+                      <div className="text-xs font-bold text-cyan-300 flex items-center gap-1.5">
+                        <Zap className="w-3.5 h-3.5 fill-current text-cyan-400" />
+                        <span>New Security Scan</span>
+                      </div>
+                      <p className="text-[11px] text-slate-400 mt-0.5">Audit a new domain with 1 click</p>
+                    </div>
+                    <ChevronRight className="w-4 h-4 text-slate-500 group-hover:text-cyan-400 group-hover:translate-x-0.5 transition" />
+                  </button>
+
+                  <button
+                    onClick={() => setActiveTab('tools')}
+                    className="p-3.5 rounded-xl bg-slate-900/60 border border-slate-800 hover:border-slate-700 flex items-center justify-between text-left group transition cursor-pointer"
+                  >
+                    <div>
+                      <div className="text-xs font-bold text-white flex items-center gap-1.5">
+                        <Layers className="w-3.5 h-3.5 text-amber-400" />
+                        <span>Tools Center</span>
+                      </div>
+                      <p className="text-[11px] text-slate-400 mt-0.5">Run individual tools on demand</p>
+                    </div>
+                    <ChevronRight className="w-4 h-4 text-slate-500 group-hover:text-amber-400 group-hover:translate-x-0.5 transition" />
+                  </button>
+
+                  <button
+                    onClick={() => setActiveTab('findings')}
+                    className="p-3.5 rounded-xl bg-slate-900/60 border border-slate-800 hover:border-slate-700 flex items-center justify-between text-left group transition cursor-pointer"
+                  >
+                    <div>
+                      <div className="text-xs font-bold text-white flex items-center gap-1.5">
+                        <Shield className="w-3.5 h-3.5 text-emerald-400" />
+                        <span>7-Check Readiness Gate</span>
+                      </div>
+                      <p className="text-[11px] text-slate-400 mt-0.5">Inspect verified audit results</p>
+                    </div>
+                    <ChevronRight className="w-4 h-4 text-slate-500 group-hover:text-emerald-400 group-hover:translate-x-0.5 transition" />
+                  </button>
+                </div>
+
                 {/* Target banner */}
                 <div className="p-5 rounded-xl bg-gradient-to-r from-slate-900 via-slate-900 to-slate-950 border border-slate-800 flex flex-wrap items-center justify-between gap-4">
                   <div>
@@ -610,6 +1018,245 @@ export default function App() {
                       <span className="text-xs text-slate-500 italic">No ports recorded in ports.json for this run.</span>
                     )}
                   </div>
+                </div>
+              </div>
+            )}
+
+            {/* TOOLS CENTER TAB */}
+            {activeTab === 'tools' && (
+              <div className="space-y-6">
+                {/* Tools Center Banner */}
+                <div className="p-6 rounded-xl bg-gradient-to-r from-slate-900 via-slate-900 to-indigo-950/40 border border-slate-800 flex flex-wrap items-center justify-between gap-4">
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <h2 className="text-xl font-bold text-white flex items-center gap-2">
+                        <Zap className="w-5 h-5 text-amber-400 fill-amber-400/20" />
+                        Security Tools Center
+                      </h2>
+                      <span className="text-[10px] font-semibold uppercase px-2 py-0.5 rounded-full bg-cyan-500/10 text-cyan-400 border border-cyan-500/20">
+                        No CLI Required
+                      </span>
+                    </div>
+                    <p className="text-xs text-slate-400 mt-1 max-w-2xl">
+                      Trigger individual reconnaissance, discovery, fuzzing, or verification tools directly with a single click. 
+                      Every tool automatically obeys the absolute scope guard at the transport layer.
+                    </p>
+                  </div>
+
+                  <div className="flex items-center gap-3">
+                    <button
+                      onClick={() => setShowArsenalDetails(prev => !prev)}
+                      className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-750 border border-slate-700 text-xs font-mono text-slate-300 transition cursor-pointer"
+                    >
+                      <Wrench className="w-3.5 h-3.5 text-cyan-400" />
+                      <span>Arsenal: {toolsArsenal.filter(t => t.Installed).length}/{toolsArsenal.length || 8} Installed</span>
+                      {showArsenalDetails ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+                    </button>
+                  </div>
+                </div>
+
+                {/* Arsenal Installed Details (Collapsible) */}
+                {showArsenalDetails && (
+                  <div className="p-5 rounded-xl bg-slate-900/80 border border-slate-800 space-y-3">
+                    <div className="flex items-center justify-between">
+                      <h3 className="text-xs font-semibold text-slate-300 uppercase tracking-wider font-mono">
+                        Host Tool Binary Status (PATH Inspection)
+                      </h3>
+                      <span className="text-xs text-slate-500 font-mono">Verified via tools.InspectArsenal</span>
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                      {toolsArsenal.map(tool => (
+                        <div key={tool.Binary} className="p-3 rounded-lg bg-slate-950/70 border border-slate-800 flex items-start justify-between gap-2">
+                          <div>
+                            <div className="flex items-center gap-2">
+                              <span className="font-mono text-xs font-bold text-white">{tool.Binary}</span>
+                              <span className={`text-[9px] px-1.5 py-0.2 rounded font-mono font-medium ${
+                                tool.Installed ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30' : 'bg-slate-800 text-slate-400'
+                              }`}>
+                                {tool.Installed ? `v${tool.Version}` : 'Not found'}
+                              </span>
+                            </div>
+                            <p className="text-[11px] text-slate-400 mt-1 line-clamp-1">{tool.Description}</p>
+                            {!tool.Installed && tool.InstallHint && (
+                              <p className="text-[10px] text-cyan-400 font-mono mt-1">Hint: {tool.InstallHint}</p>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Tool Cards Grid */}
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                  {[
+                    {
+                      key: 'subdomains',
+                      title: 'Subdomain Finder',
+                      subtitle: 'Passive Recon & DNS',
+                      engine: 'subfinder, assetfinder, crt.sh, dnsx',
+                      icon: Globe,
+                      count: `${inventory.length} Subdomains`,
+                      desc: 'Discovers active subdomains via certificate transparency and resolves DNS. Zero active packets sent to target web servers.',
+                      actionLabel: 'Discover Subdomains',
+                      viewTab: 'recon'
+                    },
+                    {
+                      key: 'ports',
+                      title: 'Port & Service Scanner',
+                      subtitle: 'TCP Port Enumeration',
+                      engine: 'naabu, nmap',
+                      icon: Server,
+                      count: `${ports.length} Open Ports`,
+                      desc: 'Scans top ports across discovered hosts and fingerprints running services with read-only probe signatures.',
+                      actionLabel: 'Scan Open Ports',
+                      viewTab: 'recon'
+                    },
+                    {
+                      key: 'probe',
+                      title: 'Live Web Prober',
+                      subtitle: 'HTTP/HTTPS Fingerprinting',
+                      engine: 'httpx',
+                      icon: Activity,
+                      count: `${httpx.length} Web Endpoints`,
+                      desc: 'Probes HTTP and HTTPS ports, extracts website titles, response status codes, web server banners, and tech stacks.',
+                      actionLabel: 'Probe Web Servers',
+                      viewTab: 'recon'
+                    },
+                    {
+                      key: 'crawl',
+                      title: 'Web Application Crawler',
+                      subtitle: 'Fast URL & Endpoint Crawl',
+                      engine: 'katana',
+                      icon: Search,
+                      count: `${crawl.length} Crawled URLs`,
+                      desc: 'Crawls live web applications to discover links, API endpoints, hidden forms, and JavaScript routes.',
+                      actionLabel: 'Crawl Endpoints',
+                      viewTab: 'recon'
+                    },
+                    {
+                      key: 'fuzz',
+                      title: 'Directory & File Fuzzer',
+                      subtitle: 'Hidden Path Discovery',
+                      engine: 'ffuf',
+                      icon: Layers,
+                      count: `${fuzz.length} Paths Fuzzed`,
+                      desc: 'Fuzzes web paths to discover hidden directories, configuration backups, sensitive admin panels, and files.',
+                      actionLabel: 'Fuzz Directories',
+                      viewTab: 'recon'
+                    },
+                    {
+                      key: 'xss',
+                      title: 'XSS Vulnerability Prober',
+                      subtitle: 'Safe Reflection Testing',
+                      engine: 'dalfox',
+                      icon: AlertOctagon,
+                      count: 'Safe Parameter Probes',
+                      desc: 'Tests discovered URL parameters for reflected cross-site scripting without executing destructive payloads.',
+                      actionLabel: 'Test for XSS',
+                      viewTab: 'findings'
+                    },
+                    {
+                      key: 'nuclei',
+                      title: 'Vulnerability Posture',
+                      subtitle: 'Safe Community Templates',
+                      engine: 'nuclei (read-only)',
+                      icon: Shield,
+                      count: 'Safe Posture Tags',
+                      desc: 'Runs community-curated vulnerability templates for CVEs, exposed panels, and common security misconfigurations.',
+                      actionLabel: 'Run Posture Scan',
+                      viewTab: 'findings'
+                    },
+                    {
+                      key: 'validate',
+                      title: '7-Check Readiness Gate',
+                      subtitle: 'Deterministic Verification',
+                      engine: 'internal/validate & report',
+                      icon: CheckCircle2,
+                      count: `${verifiedCount} Verified Findings`,
+                      desc: 'Executes the authoritative 7-check readiness gate on all findings and generates HTML/Markdown executive reports.',
+                      actionLabel: 'Validate & Build Report',
+                      viewTab: 'findings'
+                    }
+                  ].map(tool => {
+                    const Icon = tool.icon;
+                    const isRunning = runningTool === tool.key;
+                    const feedback = toolFeedback[tool.key];
+
+                    return (
+                      <div 
+                        key={tool.key}
+                        className="p-5 rounded-xl bg-slate-900/60 border border-slate-800 flex flex-col justify-between hover:border-slate-700 transition space-y-4"
+                      >
+                        <div className="space-y-3">
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="p-2.5 rounded-lg bg-cyan-500/10 text-cyan-400 border border-cyan-500/20">
+                              <Icon className="w-5 h-5" />
+                            </div>
+                            <span className="text-[10px] font-mono font-medium px-2 py-0.5 rounded-full bg-slate-800 text-slate-300 border border-slate-700 truncate max-w-[130px]" title={tool.engine}>
+                              {tool.engine.split(',')[0]}
+                            </span>
+                          </div>
+
+                          <div>
+                            <h3 className="font-bold text-white text-base">{tool.title}</h3>
+                            <p className="text-[11px] text-cyan-400 font-medium font-mono">{tool.subtitle}</p>
+                            <div className="mt-2 text-xs font-mono font-bold text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2.5 py-1 rounded-md inline-block">
+                              {tool.count}
+                            </div>
+                          </div>
+
+                          <p className="text-xs text-slate-400 leading-relaxed">
+                            {tool.desc}
+                          </p>
+                        </div>
+
+                        <div className="space-y-2 pt-2 border-t border-slate-800/80">
+                          {feedback && (
+                            <div className={`p-2 rounded-lg text-[11px] font-mono leading-tight ${
+                              feedback.isError 
+                                ? 'bg-red-500/10 border border-red-500/30 text-red-300' 
+                                : 'bg-emerald-500/10 border border-emerald-500/30 text-emerald-300'
+                            }`}>
+                              {feedback.msg}
+                            </div>
+                          )}
+
+                          <div className="flex items-center gap-2">
+                            <button
+                              onClick={() => handleExecuteTool(tool.key)}
+                              disabled={isRunning || scanStatus.running || !selectedRunId}
+                              className={`flex-1 flex items-center justify-center gap-1.5 py-2 px-3 rounded-lg text-xs font-semibold transition cursor-pointer ${
+                                isRunning 
+                                  ? 'bg-cyan-600/30 border border-cyan-500/50 text-cyan-300' 
+                                  : 'bg-slate-800 hover:bg-slate-700 text-white border border-slate-700 hover:border-slate-600'
+                              } disabled:opacity-50 disabled:cursor-not-allowed`}
+                            >
+                              {isRunning ? (
+                                <>
+                                  <RefreshCw className="w-3.5 h-3.5 animate-spin text-cyan-400" />
+                                  <span>Running...</span>
+                                </>
+                              ) : (
+                                <>
+                                  <Play className="w-3.5 h-3.5 text-cyan-400 fill-cyan-400" />
+                                  <span>{tool.actionLabel}</span>
+                                </>
+                              )}
+                            </button>
+
+                            <button
+                              onClick={() => setActiveTab(tool.viewTab)}
+                              className="p-2 rounded-lg bg-slate-800/50 hover:bg-slate-750 text-slate-400 hover:text-white border border-slate-700/60 transition cursor-pointer"
+                              title="View results in dashboard"
+                            >
+                              <ExternalLink className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
             )}
@@ -931,6 +1578,19 @@ export default function App() {
             {/* TIER 2 AI TRIAGE TAB */}
             {activeTab === 'triage' && (
               <div className="space-y-6">
+                {/* Clarification banner: AI is optional */}
+                <div className="p-4 rounded-xl bg-slate-900/90 border border-slate-800 flex items-start gap-3 text-xs text-slate-300">
+                  <HelpCircle className="w-4 h-4 text-cyan-400 shrink-0 mt-0.5" />
+                  <div className="space-y-1">
+                    <span className="font-semibold text-white">AI Triage is purely optional:</span>
+                    <p className="text-slate-400 leading-relaxed">
+                      Scoutr operates completely and deterministically without requiring an AI model or connection. 
+                      All reconnaissance tools, port scanners, crawlers, and the 7-Check Readiness Gate run 100% locally on your machine. 
+                      If you want an AI to assist with ranking findings and drafting descriptions, connect LM Studio, llama.cpp, or Ollama below.
+                    </p>
+                  </div>
+                </div>
+
                 {/* Local LLM Interactive Workbench Card */}
                 <div className="p-6 rounded-2xl bg-gradient-to-b from-slate-900/90 to-slate-950 border border-slate-800 shadow-xl space-y-5">
                   <div className="flex flex-wrap items-center justify-between gap-4 border-b border-slate-800/80 pb-4">
@@ -1517,6 +2177,209 @@ export default function App() {
           </>
         )}
       </main>
+
+      {/* NEW SCAN MODAL WIZARD */}
+      {scanModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
+          <div className="bg-[#0e1628] border border-slate-700/80 rounded-2xl w-full max-w-xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
+            {/* Modal Header */}
+            <div className="p-6 border-b border-slate-800 flex items-center justify-between bg-gradient-to-r from-slate-900 to-slate-950">
+              <div className="flex items-center gap-3">
+                <div className="p-2.5 rounded-xl bg-gradient-to-tr from-cyan-600 to-blue-600 text-white shadow-lg shadow-cyan-500/20">
+                  <Zap className="w-5 h-5 fill-current" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-bold text-white">Start New Security Scan</h3>
+                  <p className="text-xs text-slate-400">Automated recon, discovery, and 7-check verification</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setScanModalOpen(false)}
+                className="p-1.5 text-slate-400 hover:text-white rounded-lg hover:bg-slate-800 transition cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <form onSubmit={handleStartScan} className="p-6 space-y-5 overflow-y-auto flex-1">
+              {/* Target Domain Input */}
+              <div className="space-y-1.5">
+                <label className="text-xs font-semibold text-slate-300 uppercase tracking-wider">
+                  Target Domain or Hostname <span className="text-red-400">*</span>
+                </label>
+                <div className="relative">
+                  <Globe className="w-4 h-4 text-slate-500 absolute left-3.5 top-3" />
+                  <input
+                    type="text"
+                    required
+                    value={scanTargetInput}
+                    onChange={(e) => setScanTargetInput(e.target.value)}
+                    placeholder="e.g. example.com or app.target.com"
+                    className="w-full bg-slate-950 border border-slate-700 rounded-xl pl-10 pr-4 py-2.5 text-sm font-mono text-white placeholder-slate-500 focus:outline-none focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500"
+                    autoFocus
+                  />
+                </div>
+                <p className="text-[11px] text-slate-400">
+                  Automatically scoped to target and all subdomains (<code className="text-cyan-400">*.target.com</code>). 
+                  All out-of-scope network traffic is strictly blocked at the transport layer.
+                </p>
+              </div>
+
+              {/* Scan Mode Selection */}
+              <div className="space-y-2">
+                <label className="text-xs font-semibold text-slate-300 uppercase tracking-wider">
+                  Scan Mode Preset
+                </label>
+                <div className="grid grid-cols-1 gap-2.5">
+                  <label className={`p-3 rounded-xl border flex items-start gap-3 cursor-pointer transition ${
+                    scanMode === 'standard' ? 'bg-cyan-500/10 border-cyan-500/50 ring-1 ring-cyan-500/30' : 'bg-slate-950/60 border-slate-800 hover:border-slate-700'
+                  }`}>
+                    <input
+                      type="radio"
+                      name="scanMode"
+                      value="standard"
+                      checked={scanMode === 'standard'}
+                      onChange={() => setScanMode('standard')}
+                      className="mt-0.5 text-cyan-500 focus:ring-cyan-500 cursor-pointer"
+                    />
+                    <div className="text-xs">
+                      <span className="font-bold text-white block">Standard Security Audit (Recommended)</span>
+                      <span className="text-slate-400 leading-normal block mt-0.5">
+                        Full reconnaissance, open ports, live web tech stack, katana crawler, directory fuzzing, safe vulnerability tests, and the 7-check gate.
+                      </span>
+                    </div>
+                  </label>
+
+                  <label className={`p-3 rounded-xl border flex items-start gap-3 cursor-pointer transition ${
+                    scanMode === 'passive' ? 'bg-cyan-500/10 border-cyan-500/50 ring-1 ring-cyan-500/30' : 'bg-slate-950/60 border-slate-800 hover:border-slate-700'
+                  }`}>
+                    <input
+                      type="radio"
+                      name="scanMode"
+                      value="passive"
+                      checked={scanMode === 'passive'}
+                      onChange={() => setScanMode('passive')}
+                      className="mt-0.5 text-cyan-500 focus:ring-cyan-500 cursor-pointer"
+                    />
+                    <div className="text-xs">
+                      <span className="font-bold text-white block">Passive Recon Only (Fast & Silent)</span>
+                      <span className="text-slate-400 leading-normal block mt-0.5">
+                        Discovers subdomains and DNS records via certificate transparency logs and DNS queries. Sends zero network packets to target web servers.
+                      </span>
+                    </div>
+                  </label>
+
+                  <label className={`p-3 rounded-xl border flex items-start gap-3 cursor-pointer transition ${
+                    scanMode === 'custom' ? 'bg-cyan-500/10 border-cyan-500/50 ring-1 ring-cyan-500/30' : 'bg-slate-950/60 border-slate-800 hover:border-slate-700'
+                  }`}>
+                    <input
+                      type="radio"
+                      name="scanMode"
+                      value="custom"
+                      checked={scanMode === 'custom'}
+                      onChange={() => setScanMode('custom')}
+                      className="mt-0.5 text-cyan-500 focus:ring-cyan-500 cursor-pointer"
+                    />
+                    <div className="text-xs flex-1">
+                      <span className="font-bold text-white block">Custom Tool Selection</span>
+                      <span className="text-slate-400 leading-normal block mt-0.5">
+                        Select precisely which security stages to execute during this scan.
+                      </span>
+                    </div>
+                  </label>
+                </div>
+              </div>
+
+              {/* Custom tool checkboxes if custom mode is selected */}
+              {scanMode === 'custom' && (
+                <div className="p-4 rounded-xl bg-slate-950 border border-slate-800 space-y-2.5">
+                  <span className="text-xs font-semibold text-slate-300 uppercase tracking-wider block">
+                    Enable / Disable Stages:
+                  </span>
+                  <div className="grid grid-cols-2 gap-2 text-xs">
+                    {[
+                      { key: 'ports', label: 'Port Scanner (naabu/nmap)' },
+                      { key: 'probe', label: 'Web Prober (httpx)' },
+                      { key: 'crawl', label: 'Katana Crawler' },
+                      { key: 'fuzz', label: 'FFUF Directory Fuzzer' },
+                      { key: 'xss', label: 'Dalfox XSS Prober' },
+                      { key: 'nuclei', label: 'Nuclei Posture Checks' }
+                    ].map(item => (
+                      <label key={item.key} className="flex items-center gap-2 text-slate-300 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={customTools[item.key]}
+                          onChange={(e) => setCustomTools(prev => ({ ...prev, [item.key]: e.target.checked }))}
+                          className="rounded text-cyan-500 focus:ring-cyan-500 cursor-pointer"
+                        />
+                        <span>{item.label}</span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Optional Exclusions & Rate Limit */}
+              <div className="space-y-3 pt-2 border-t border-slate-800/80">
+                <div className="space-y-1">
+                  <label className="text-xs font-semibold text-slate-400 uppercase tracking-wider flex items-center justify-between">
+                    <span>Out-of-Scope Exclusions (Optional)</span>
+                    <span className="text-[11px] font-normal text-slate-500">Comma or line separated</span>
+                  </label>
+                  <input
+                    type="text"
+                    value={outOfScopeInput}
+                    onChange={(e) => setOutOfScopeInput(e.target.value)}
+                    placeholder="e.g. admin.example.com, test.example.com"
+                    className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-xs font-mono text-slate-300 placeholder-slate-600 focus:outline-none focus:border-cyan-500"
+                  />
+                </div>
+
+                <div className="flex items-center justify-between gap-4">
+                  <span className="text-xs text-slate-400 font-medium">Request Rate Limit (req/sec):</span>
+                  <input
+                    type="number"
+                    min="1"
+                    max="200"
+                    value={rateLimitInput}
+                    onChange={(e) => setRateLimitInput(e.target.value)}
+                    className="w-24 bg-slate-950 border border-slate-800 rounded-lg px-2.5 py-1 text-xs font-mono text-white text-right focus:outline-none focus:border-cyan-500"
+                  />
+                </div>
+              </div>
+
+              {/* Modal Footer */}
+              <div className="pt-4 border-t border-slate-800 flex items-center justify-end gap-3">
+                <button
+                  type="button"
+                  onClick={() => setScanModalOpen(false)}
+                  className="px-4 py-2 rounded-xl text-xs font-medium text-slate-400 hover:text-white hover:bg-slate-800 transition cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={scanStarting || !scanTargetInput.trim()}
+                  className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-white font-bold text-xs shadow-lg shadow-cyan-500/20 transition cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {scanStarting ? (
+                    <>
+                      <RefreshCw className="w-4 h-4 animate-spin" />
+                      <span>Launching...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Play className="w-4 h-4 fill-current" />
+                      <span>Start Security Scan</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
 
       {/* FINDING DETAIL DRAWER / MODAL */}
       {activeFinding && (

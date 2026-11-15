@@ -77,9 +77,27 @@ func compilePatterns(entries []string) []pattern {
 	return patterns
 }
 
+// New creates and compiles a new Scope from in-scope and out-of-scope slices.
+func New(inScope, outOfScope []string) *Scope {
+	return &Scope{
+		InScope:     inScope,
+		OutOfScope:  outOfScope,
+		inPatterns:  compilePatterns(inScope),
+		outPatterns: compilePatterns(outOfScope),
+	}
+}
+
 // IsInScope checks if the given host is in scope.
 // Out-of-scope always wins over in-scope.
 func (s *Scope) IsInScope(host string) bool {
+	if s == nil {
+		return false
+	}
+	if len(s.inPatterns) == 0 && len(s.InScope) > 0 {
+		s.inPatterns = compilePatterns(s.InScope)
+		s.outPatterns = compilePatterns(s.OutOfScope)
+	}
+
 	host = strings.ToLower(strings.TrimSpace(host))
 
 	// Strip port if present

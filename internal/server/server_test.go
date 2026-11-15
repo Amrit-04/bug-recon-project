@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/scoutr/scoutr/internal/findings"
+	"github.com/scoutr/scoutr/internal/tools"
 	"github.com/scoutr/scoutr/internal/triage"
 	"github.com/scoutr/scoutr/internal/validate"
 	"github.com/scoutr/scoutr/internal/workspace"
@@ -407,5 +408,180 @@ func TestServerRunTriage(t *testing.T) {
 
 	if badRR.Code != http.StatusBadRequest {
 		t.Errorf("status = %d, want 400 for empty model", badRR.Code)
+	}
+}
+
+func TestServerToolsAPI(t *testing.T) {
+	runner := tools.NewMockRunner()
+	runner.RegisterTool("naabu", "/usr/bin/naabu", func(ctx context.Context, args []string, stdin []byte) ([]byte, []byte, error) {
+		return []byte("naabu v2.3.1"), nil, nil
+	})
+
+	s, err := New(Config{
+		RunsDir: t.TempDir(),
+		Runner:  runner,
+	})
+	if err != nil {
+		t.Fatalf("New server: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/tools", nil)
+	rr := httptest.NewRecorder()
+	s.Routes().ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rr.Code)
+	}
+
+	var statuses []tools.ToolStatus
+	if err := json.Unmarshal(rr.Body.Bytes(), &statuses); err != nil {
+		t.Fatalf("unmarshal tools: %v", err)
+	}
+
+	if len(statuses) == 0 {
+		t.Fatal("expected non-empty tools list")
+	}
+
+	var foundNaabu bool
+	for _, st := range statuses {
+		if st.Binary == "naabu" {
+			foundNaabu = true
+			if !st.Installed {
+				t.Error("expected naabu to be installed via mock runner")
+			}
+			if st.Version != "2.3.1" {
+				t.Errorf("expected version 2.3.1, got %s", st.Version)
+			}
+		}
+	}
+	if !foundNaabu {
+		t.Error("naabu not found in tools list")
+	}
+}
+
+func TestServerScanLifecycle(t *testing.T) {
+	runner := tools.NewMockRunner()
+
+	s, err := New(Config{
+		RunsDir: t.TempDir(),
+		Runner:  runner,
+	})
+	if err != nil {
+		t.Fatalf("New server: %v", err)
+	}
+	handler := s.Routes()
+
+	// 1. Initial status should be not running
+	reqStatus := httptest.NewRequest(http.MethodGet, "/api/scan/status", nil)
+	rrStatus := httptest.NewRecorder()
+	handler.ServeHTTP(rrStatus, reqStatus)
+	if rrStatus.Code != http.StatusOK {
+		t.Fatalf("get status code = %d, want 200", rrStatus.Code)
+	}
+	var initStatus ScanStatus
+	_ = json.Unmarshal(rrStatus.Body.Bytes(), &initStatus)
+	if initStatus.Running {
+		t.Error("expected initial scan status to be not running")
+	}
+
+	// 2. Start a scan (DryRun = true)
+	payload := `{"target":"api.example.com","in_scope":["api.example.com"],"dry_run":true}`
+	reqStart := httptest.NewRequest(http.MethodPost, "/api/scan", strings.NewReader(payload))
+	rrStart := httptest.NewRecorder()
+	handler.ServeHTTP(rrStart, reqStart)
+
+	if rrStart.Code != http.StatusOK {
+		t.Fatalf("start scan code = %d, want 200: %s", rrStart.Code, rrStart.Body.String())
+	}
+
+	// Wait briefly for dry-run to complete in background
+	time.Sleep(100 * time.Millisecond)
+
+	// 3. Status should have recorded logs
+	reqStatus2 := httptest.NewRequest(http.MethodGet, "/api/scan/status", nil)
+	rrStatus2 := httptest.NewRecorder()
+	handler.ServeHTTP(rrStatus2, reqStatus2)
+	var postStatus ScanStatus
+	_ = json.Unmarshal(rrStatus2.Body.Bytes(), &postStatus)
+	if len(postStatus.Logs) == 0 {
+		t.Error("expected logs in scan status after dry-run")
+	}
+
+	// 4. Cancel when not running returns not_running
+	reqCancel := httptest.NewRequest(http.MethodPost, "/api/scan/cancel", nil)
+	rrCancel := httptest.NewRecorder()
+	handler.ServeHTTP(rrCancel, reqCancel)
+	if rrCancel.Code != http.StatusOK {
+		t.Fatalf("cancel code = %d, want 200", rrCancel.Code)
+	}
+	if !strings.Contains(rrCancel.Body.String(), "not_running") {
+		t.Errorf("expected not_running response, got %s", rrCancel.Body.String())
+	}
+}
+
+func TestServerModularToolExecution(t *testing.T) {
+	baseDir := t.TempDir()
+	ws, runID := createTestWorkspaceWithArtifacts(t, baseDir)
+
+	runner := tools.NewMockRunner()
+	runner.RegisterTool("naabu", "/usr/bin/naabu", func(ctx context.Context, args []string, stdin []byte) ([]byte, []byte, error) {
+		return []byte("api.example.com:443\n"), nil, nil
+	})
+	runner.RegisterTool("httpx", "/usr/bin/httpx", func(ctx context.Context, args []string, stdin []byte) ([]byte, []byte, error) {
+		return []byte(`{"url":"https://api.example.com","status_code":200,"title":"API"}` + "\n"), nil, nil
+	})
+
+	s, err := New(Config{
+		RunsDir: baseDir,
+		Runner:  runner,
+	})
+	if err != nil {
+		t.Fatalf("New server: %v", err)
+	}
+	handler := s.Routes()
+
+	// 1. Run subdomains
+	reqSub := httptest.NewRequest(http.MethodPost, "/api/runs/"+runID+"/tools/subdomains", strings.NewReader(`{"in_scope":["api.example.com"]}`))
+	rrSub := httptest.NewRecorder()
+	handler.ServeHTTP(rrSub, reqSub)
+	if rrSub.Code != http.StatusOK {
+		t.Fatalf("subdomains tool code = %d, want 200: %s", rrSub.Code, rrSub.Body.String())
+	}
+
+	// 2. Run ports
+	reqPorts := httptest.NewRequest(http.MethodPost, "/api/runs/"+runID+"/tools/ports", strings.NewReader(`{}`))
+	rrPorts := httptest.NewRecorder()
+	handler.ServeHTTP(rrPorts, reqPorts)
+	if rrPorts.Code != http.StatusOK {
+		t.Fatalf("ports tool code = %d, want 200: %s", rrPorts.Code, rrPorts.Body.String())
+	}
+
+	// 3. Run probe
+	reqProbe := httptest.NewRequest(http.MethodPost, "/api/runs/"+runID+"/tools/probe", strings.NewReader(`{}`))
+	rrProbe := httptest.NewRecorder()
+	handler.ServeHTTP(rrProbe, reqProbe)
+	if rrProbe.Code != http.StatusOK {
+		t.Fatalf("probe tool code = %d, want 200: %s", rrProbe.Code, rrProbe.Body.String())
+	}
+
+	// 4. Run validate (7-Check Gate)
+	reqVal := httptest.NewRequest(http.MethodPost, "/api/runs/"+runID+"/tools/validate", strings.NewReader(`{}`))
+	rrVal := httptest.NewRecorder()
+	handler.ServeHTTP(rrVal, reqVal)
+	if rrVal.Code != http.StatusOK {
+		t.Fatalf("validate tool code = %d, want 200: %s", rrVal.Code, rrVal.Body.String())
+	}
+
+	// 5. Run unknown tool
+	reqBad := httptest.NewRequest(http.MethodPost, "/api/runs/"+runID+"/tools/unknown-tool", strings.NewReader(`{}`))
+	rrBad := httptest.NewRecorder()
+	handler.ServeHTTP(rrBad, reqBad)
+	if rrBad.Code != http.StatusBadRequest {
+		t.Errorf("unknown tool code = %d, want 400", rrBad.Code)
+	}
+
+	// Ensure workspace still valid
+	if _, err := ws.LoadInventory(); err != nil {
+		t.Errorf("load inventory after runs: %v", err)
 	}
 }
