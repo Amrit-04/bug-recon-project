@@ -3,9 +3,13 @@ package pipeline
 import (
 	"context"
 	"fmt"
+	"io"
 	"strings"
+	"time"
 
+	"github.com/scoutr/scoutr/internal/endpoints"
 	"github.com/scoutr/scoutr/internal/findings"
+	"github.com/scoutr/scoutr/internal/httpx"
 	"github.com/scoutr/scoutr/internal/recon/subdomains"
 	"github.com/scoutr/scoutr/internal/report"
 	"github.com/scoutr/scoutr/internal/scope"
@@ -47,6 +51,7 @@ type Result struct {
 	LiveHTTP  []tools.HTTPXResult
 	Crawled   []tools.KatanaResult
 	Fuzzed    []tools.FFUFResult
+	Endpoints []*endpoints.Endpoint
 	Raw       []*findings.Finding
 	Validated []*validate.ValidatedFinding
 	Summary   string
@@ -242,7 +247,7 @@ func Run(ctx context.Context, opts Options) (*Result, error) {
 	}
 
 	// ---- Stage 4: Web Crawling -------------------------------------------
-	var endpoints []string
+	var discoveredTargets []string
 	var crawled []tools.KatanaResult
 	if !opts.SkipCrawl {
 		progress(4, "crawl", fmt.Sprintf("Crawling %d live websites for pages and links...", len(liveURLs)))
@@ -255,14 +260,14 @@ func Run(ctx context.Context, opts Options) (*Result, error) {
 			return nil, fmt.Errorf("save crawl artifact: %w", err)
 		}
 		for _, c := range crawled {
-			endpoints = MergeUnique(endpoints, c.Endpoint)
+			discoveredTargets = MergeUnique(discoveredTargets, c.Endpoint)
 		}
-		logger("[4/8] crawl: %d endpoints mapped", len(endpoints))
+		logger("[4/8] crawl: %d endpoints mapped", len(discoveredTargets))
 	} else {
 		progress(4, "crawl", "Skipped by user configuration")
 		logger("[4/8] crawl: skipped")
 	}
-	endpoints = MergeUnique(endpoints, liveURLs...)
+	discoveredTargets = MergeUnique(discoveredTargets, liveURLs...)
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -288,16 +293,110 @@ func Run(ctx context.Context, opts Options) (*Result, error) {
 		progress(5, "fuzz", "Skipped by user configuration")
 		logger("[5/8] fuzz: skipped")
 	}
-	endpoints = MergeUnique(endpoints, fuzzURLs...)
+	discoveredTargets = MergeUnique(discoveredTargets, fuzzURLs...)
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
+
+	// ---- Phase 2: Central Endpoint Intelligence & Normalization ---------
+	endpointInv := endpoints.NewInventory()
+
+	// 1. Ingest historical archive URLs (waybackurls/gau)
+	archiveURLs, _ := tools.RunURLs(ctx, runner, opts.Scope, tools.ExtractRootDomains(opts.Scope), tools.LogFunc(logger))
+	for _, aURL := range archiveURLs {
+		if opts.Scope.IsURLInScope(aURL) {
+			endpointInv.AddRawURL(aURL, "GET", "archive", nil)
+		}
+	}
+
+	// 2. Ingest live HTTP probed services & tech stacks
+	for _, l := range live {
+		if opts.Scope.IsURLInScope(l.URL) {
+			ep, _ := endpointInv.AddRawURL(l.URL, "GET", "httpx", l.Tech)
+			if ep != nil {
+				ep.ResponseMetadata = &endpoints.ResponseMetadata{
+					StatusCode: l.StatusCode,
+				}
+			}
+		}
+	}
+
+	// 3. Ingest crawled endpoints
+	for _, c := range crawled {
+		if opts.Scope.IsURLInScope(c.Endpoint) {
+			endpointInv.AddRawURL(c.Endpoint, "GET", "katana", nil)
+		}
+	}
+
+	// 4. Ingest fuzzed endpoints
+	for _, f := range fuzzed {
+		if opts.Scope.IsURLInScope(f.URL) {
+			ep, _ := endpointInv.AddRawURL(f.URL, "GET", "ffuf", nil)
+			if ep != nil {
+				ep.ResponseMetadata = &endpoints.ResponseMetadata{
+					StatusCode:    f.Status,
+					ContentLength: int64(f.Length),
+				}
+			}
+		}
+	}
+
+	// 5. Public API Specification Discovery (OpenAPI/Swagger) & JS Extraction
+	// Strict scope enforcement via ScopedTransport
+	scopeHTTPClient := httpx.New(httpx.Config{
+		Scope:       opts.Scope,
+		Timeout:     10 * time.Second,
+		MaxBodySize: 1024 * 1024,
+		GlobalRate:  float64(opts.Rate),
+		PerHostRate: float64(opts.RatePerHost),
+		DryRun:      opts.DryRun,
+		UserAgent:   "scoutr/1.0 (security research)",
+	})
+
+	for _, l := range live {
+		if opts.Scope.IsURLInScope(l.URL) {
+			specEndpoints, _ := endpoints.DiscoverPublicAPISpec(ctx, scopeHTTPClient, l.URL, opts.Scope)
+			for _, specEp := range specEndpoints {
+				endpointInv.AddOrMerge(specEp)
+			}
+		}
+	}
+
+	// Script JS extraction: scan crawled script URLs (capped at 15 scripts to respect timeouts)
+	jsCount := 0
+	for _, c := range crawled {
+		lowerEp := strings.ToLower(c.Endpoint)
+		if strings.HasSuffix(lowerEp, ".js") && opts.Scope.IsURLInScope(c.Endpoint) && jsCount < 15 {
+			jsCount++
+			if resp, err := scopeHTTPClient.Get(ctx, c.Endpoint); err == nil && resp != nil {
+				if resp.StatusCode == 200 {
+					body, _ := io.ReadAll(io.LimitReader(resp.Body, 512*1024))
+					resp.Body.Close()
+					jsEndpoints := endpoints.ExtractEndpointsFromJS(string(body), c.Endpoint, opts.Scope)
+					for _, jsEp := range jsEndpoints {
+						endpointInv.AddOrMerge(jsEp)
+					}
+				} else {
+					resp.Body.Close()
+				}
+			}
+		}
+	}
+
+	endpointInv.FilterInScope(opts.Scope)
+	allEndpoints := endpointInv.GetAll()
+	_ = ws.SaveArtifact(workspace.EndpointsFile, allEndpoints)
+
+	for _, ep := range allEndpoints {
+		discoveredTargets = MergeUnique(discoveredTargets, ep.URL)
+	}
+	logger("[intelligence] %d normalized endpoints stored in %s", len(allEndpoints), workspace.EndpointsFile)
 
 	// ---- Stage 6: Parameterized XSS Probing ------------------------------
 	var raw []*findings.Finding
 	if !opts.SkipXSS {
 		progress(6, "xss", "Testing parameterized inputs for Cross-Site Scripting...")
-		xssFindings, xssErr := tools.RunDalfox(ctx, runner, opts.Scope, endpoints, opts.RatePerHost, tools.DefaultMaxDalfoxTargets, tools.LogFunc(logger))
+		xssFindings, xssErr := tools.RunDalfox(ctx, runner, opts.Scope, discoveredTargets, opts.RatePerHost, tools.DefaultMaxDalfoxTargets, tools.LogFunc(logger))
 		if xssErr != nil && ctx.Err() == nil {
 			logger("[WARN] dalfox warning: %v", xssErr)
 		}
@@ -372,6 +471,7 @@ func Run(ctx context.Context, opts Options) (*Result, error) {
 		LiveHTTP:  live,
 		Crawled:   crawled,
 		Fuzzed:    fuzzed,
+		Endpoints: allEndpoints,
 		Raw:       raw,
 		Validated: validated,
 		Summary:   summary,
