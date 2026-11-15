@@ -575,19 +575,21 @@ export default function App() {
   });
 
   return (
-    <div className="flex flex-col min-h-screen bg-[#090d16] text-slate-100">
+    <div className="flex flex-col min-h-screen bg-[#080c15] bg-ambient-mesh text-slate-100 selection:bg-cyan-500/30 selection:text-cyan-200">
       {/* Top Header */}
-      <header className="border-b border-slate-800/80 bg-[#0d1424]/90 backdrop-blur sticky top-0 z-40 px-6 py-3">
+      <header className="border-b border-slate-800/80 bg-[#0c1222]/85 backdrop-blur-xl sticky top-0 z-40 px-6 py-3.5 shadow-sm shadow-black/40">
         <div className="flex flex-wrap items-center justify-between gap-4 max-w-7xl mx-auto">
           {/* Logo & Product Title */}
           <div className="flex items-center gap-3">
-            <div className="flex items-center justify-center w-10 h-10 rounded-xl bg-gradient-to-tr from-cyan-600 to-blue-600 shadow-lg shadow-cyan-500/20 text-white font-black tracking-wider">
-              <Shield className="w-5 h-5" />
+            <div className="flex items-center justify-center w-10 h-10 rounded-xl bg-gradient-to-tr from-cyan-500 via-blue-600 to-indigo-600 shadow-lg shadow-cyan-500/25 ring-1 ring-white/20 text-white font-black tracking-wider transition hover:scale-105 duration-200">
+              <Shield className="w-5 h-5 drop-shadow" />
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <h1 className="text-lg font-bold tracking-tight text-white font-mono">scoutr</h1>
-                <span className="text-[10px] font-semibold uppercase px-2 py-0.5 rounded-full bg-cyan-500/10 text-cyan-400 border border-cyan-500/20">
+                <h1 className="text-lg font-bold tracking-tight text-white font-mono flex items-center gap-2">
+                  <span>scoutr</span>
+                </h1>
+                <span className="text-[10px] font-semibold uppercase tracking-wider px-2 py-0.5 rounded-full bg-cyan-500/10 text-cyan-300 border border-cyan-500/25">
                   Unified Recon & Gate
                 </span>
               </div>
@@ -600,14 +602,14 @@ export default function App() {
             {/* New Scan Launch Button */}
             <button
               onClick={() => setScanModalOpen(true)}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-white font-semibold text-xs shadow-md shadow-cyan-500/20 transition cursor-pointer"
+              className="flex items-center gap-2 px-4 py-2 rounded-xl bg-gradient-to-r from-cyan-500 via-blue-600 to-indigo-600 hover:from-cyan-400 hover:to-indigo-500 text-white font-bold text-xs shadow-lg shadow-cyan-500/25 hover:shadow-cyan-500/40 hover:-translate-y-0.5 active:translate-y-0 transition-all cursor-pointer"
               title="Launch a new automated security scan"
             >
               <Zap className="w-3.5 h-3.5 fill-current" />
               <span>New Scan</span>
             </button>
 
-            <div className="flex items-center gap-2 bg-slate-900/80 border border-slate-700/60 rounded-lg px-3 py-1.5 text-xs">
+            <div className="flex items-center gap-2 bg-slate-900/90 border border-slate-700/80 rounded-xl px-3 py-1.5 text-xs shadow-inner">
               <Clock className="w-3.5 h-3.5 text-slate-400" />
               <span className="text-slate-400 font-medium">Audit Run:</span>
               {runs.length > 0 ? (
@@ -628,15 +630,18 @@ export default function App() {
             </div>
 
             {/* Scope Guard Status Badge */}
-            <div className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs font-mono">
-              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+            <div className="hidden sm:flex items-center gap-2 px-3 py-1.5 rounded-xl bg-emerald-500/10 border border-emerald-500/25 text-emerald-400 text-xs font-mono shadow-sm">
+              <span className="relative flex h-2 w-2">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-400"></span>
+              </span>
               <span>Scope Guard Active</span>
             </div>
 
             <button
               onClick={fetchRunsAndScope}
               disabled={refreshing}
-              className="p-2 text-slate-400 hover:text-white bg-slate-800/60 hover:bg-slate-700/60 border border-slate-700/60 rounded-lg transition"
+              className="p-2 text-slate-400 hover:text-white bg-slate-800/60 hover:bg-slate-700/60 border border-slate-700/60 rounded-xl transition cursor-pointer"
               title="Refresh Runs"
             >
               <RefreshCw className={`w-4 h-4 ${refreshing ? 'animate-spin text-cyan-400' : ''}`} />
@@ -646,8 +651,8 @@ export default function App() {
       </header>
 
       {/* Main Navigation Tabs */}
-      <nav className="border-b border-slate-800 bg-[#0b101d] px-6">
-        <div className="flex gap-1 max-w-7xl mx-auto overflow-x-auto text-sm font-medium">
+      <nav className="border-b border-slate-800/80 bg-[#0a0f1d]/75 backdrop-blur px-6">
+        <div className="flex gap-1.5 max-w-7xl mx-auto overflow-x-auto text-sm font-medium py-1">
           {[
             { id: 'overview', label: 'Overview', icon: Activity },
             { id: 'tools', label: 'Tools Center', icon: Zap, highlight: true },
@@ -663,19 +668,19 @@ export default function App() {
               <button
                 key={tab.id}
                 onClick={() => setActiveTab(tab.id)}
-                className={`flex items-center gap-2 py-3 px-4 border-b-2 font-medium transition whitespace-nowrap cursor-pointer ${
+                className={`flex items-center gap-2 py-2.5 px-3.5 rounded-lg font-medium transition whitespace-nowrap cursor-pointer text-xs ${
                   active 
-                    ? 'border-cyan-500 text-cyan-400 bg-cyan-500/5' 
+                    ? 'bg-cyan-500/15 text-cyan-300 border border-cyan-500/30 shadow-sm shadow-cyan-500/10' 
                     : tab.highlight
-                      ? 'border-transparent text-amber-300 hover:text-amber-200 hover:border-amber-400/40'
-                      : 'border-transparent text-slate-400 hover:text-slate-200 hover:border-slate-700'
+                      ? 'text-amber-300 hover:text-amber-200 hover:bg-amber-500/10 border border-amber-500/20'
+                      : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/50 border border-transparent'
                 }`}
               >
-                <Icon className="w-4 h-4" />
+                <Icon className={`w-4 h-4 ${active ? 'text-cyan-400' : tab.highlight ? 'text-amber-400' : ''}`} />
                 <span>{tab.label}</span>
                 {tab.count !== undefined && tab.count > 0 && (
-                  <span className={`text-[10px] font-mono px-1.5 py-0.2 rounded-full ${
-                    active ? 'bg-cyan-500/20 text-cyan-300' : 'bg-slate-800 text-slate-400'
+                  <span className={`text-[10px] font-mono px-1.5 py-0.5 rounded-full ${
+                    active ? 'bg-cyan-500/30 text-cyan-200' : 'bg-slate-800 text-slate-400'
                   }`}>
                     {tab.count}
                   </span>
@@ -688,15 +693,21 @@ export default function App() {
 
       {/* Active Scan Progress Stepper & Live Drawer */}
       {(scanStatus.running || scanNotice) && (
-        <div className="border-b border-slate-800 bg-[#0d1527] px-6 py-4 shadow-inner">
-          <div className="max-w-7xl mx-auto space-y-3">
+        <div className="border-b border-slate-800/90 bg-gradient-to-b from-[#0c1426] to-[#080d1a] px-6 py-4 shadow-xl">
+          <div className="max-w-7xl mx-auto space-y-4">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div className="flex items-center gap-3">
-                <div className="p-2 rounded-lg bg-cyan-500/10 text-cyan-400 border border-cyan-500/20">
+                <div className={`p-2.5 rounded-xl border ${
+                  scanStatus.running 
+                    ? 'bg-cyan-500/10 text-cyan-400 border-cyan-500/30 shadow-sm shadow-cyan-500/20' 
+                    : scanNotice?.type === 'error' 
+                      ? 'bg-rose-500/10 text-rose-400 border-rose-500/30' 
+                      : 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30'
+                }`}>
                   {scanStatus.running ? (
                     <RefreshCw className="w-5 h-5 animate-spin" />
                   ) : scanNotice?.type === 'error' ? (
-                    <AlertTriangle className="w-5 h-5 text-red-400" />
+                    <AlertTriangle className="w-5 h-5 text-rose-400" />
                   ) : (
                     <CheckCircle2 className="w-5 h-5 text-emerald-400" />
                   )}
@@ -707,7 +718,7 @@ export default function App() {
                       {scanStatus.running ? 'Active Scan in Progress' : 'Scan Finished'}
                     </span>
                     {scanStatus.target && (
-                      <span className="text-xs font-mono font-bold text-white bg-slate-800 px-2 py-0.5 rounded border border-slate-700">
+                      <span className="text-xs font-mono font-bold text-white bg-slate-800 px-2 py-0.5 rounded-md border border-slate-700">
                         {scanStatus.target}
                       </span>
                     )}
@@ -721,16 +732,16 @@ export default function App() {
               <div className="flex items-center gap-2">
                 <button
                   onClick={() => setShowLiveLogs(prev => !prev)}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-750 border border-slate-700 text-slate-300 text-xs font-medium transition cursor-pointer"
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-800/80 hover:bg-slate-700 border border-slate-700 text-slate-300 text-xs font-medium transition cursor-pointer"
                 >
-                  <Terminal className="w-3.5 h-3.5" />
+                  <Terminal className="w-3.5 h-3.5 text-cyan-400" />
                   <span>{showLiveLogs ? 'Hide Live Logs' : 'View Live Logs'}</span>
                 </button>
 
                 {scanStatus.running ? (
                   <button
                     onClick={handleCancelScan}
-                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-red-500/20 hover:bg-red-500/30 border border-red-500/40 text-red-300 text-xs font-semibold transition cursor-pointer"
+                    className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-rose-500/20 hover:bg-rose-500/30 border border-rose-500/40 text-rose-300 text-xs font-semibold transition cursor-pointer"
                   >
                     <XCircle className="w-3.5 h-3.5" />
                     <span>Stop Scan</span>
@@ -738,7 +749,7 @@ export default function App() {
                 ) : (
                   <button
                     onClick={() => setScanNotice(null)}
-                    className="p-1.5 text-slate-400 hover:text-white rounded-lg hover:bg-slate-800 cursor-pointer"
+                    className="p-1.5 text-slate-400 hover:text-white rounded-lg hover:bg-slate-800 cursor-pointer transition"
                     title="Dismiss"
                   >
                     <X className="w-4 h-4" />
@@ -764,12 +775,12 @@ export default function App() {
                 return (
                   <div 
                     key={stage.index}
-                    className={`flex items-center gap-2 px-2.5 py-1.5 rounded-lg border text-xs font-mono transition ${
+                    className={`flex items-center gap-2 px-2.5 py-2 rounded-xl border text-xs font-mono transition-all duration-200 ${
                       isDone 
-                        ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300' 
+                        ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300 shadow-sm shadow-emerald-500/5' 
                         : isCurrent 
-                          ? 'bg-cyan-500/15 border-cyan-500 text-cyan-200 ring-1 ring-cyan-500/50' 
-                          : 'bg-slate-900/50 border-slate-800 text-slate-500'
+                          ? 'bg-cyan-500/20 border-cyan-500 text-cyan-200 ring-2 ring-cyan-500/40 shadow-md shadow-cyan-500/10 animate-pulse' 
+                          : 'bg-slate-900/40 border-slate-800 text-slate-500'
                     }`}
                   >
                     {isDone ? (
@@ -787,24 +798,51 @@ export default function App() {
               })}
             </div>
 
-            {/* Live Log Terminal Accordion */}
+            {/* Live Log Terminal Drawer with macOS window dots */}
             {showLiveLogs && (
-              <div className="mt-2 rounded-xl bg-slate-950 border border-slate-800/90 p-3 shadow-2xl">
-                <div className="flex items-center justify-between pb-2 mb-2 border-b border-slate-800/80 text-xs text-slate-400 font-mono">
-                  <span className="flex items-center gap-1.5 text-cyan-400 font-semibold">
-                    <Terminal className="w-3.5 h-3.5" /> Live Execution Stream
-                  </span>
-                  <span>{scanStatus.logs?.length || 0} log lines</span>
+              <div className="mt-2 rounded-2xl bg-[#070b14] border border-slate-800 shadow-2xl overflow-hidden">
+                <div className="flex items-center justify-between px-4 py-2.5 bg-[#0a0f1d] border-b border-slate-800/80 text-xs text-slate-400 font-mono">
+                  <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-1.5">
+                      <div className="w-2.5 h-2.5 rounded-full bg-rose-500/80"></div>
+                      <div className="w-2.5 h-2.5 rounded-full bg-amber-500/80"></div>
+                      <div className="w-2.5 h-2.5 rounded-full bg-emerald-500/80"></div>
+                    </div>
+                    <span className="text-slate-400 text-[11px] font-semibold pl-2">scoutr-pipeline@local: ~/audit-stream</span>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <span className="text-[11px] text-slate-500 font-mono">{scanStatus.logs?.length || 0} lines</span>
+                    {scanStatus.logs && scanStatus.logs.length > 0 && (
+                      <button
+                        onClick={() => {
+                          navigator.clipboard?.writeText(scanStatus.logs.join('\n'));
+                        }}
+                        className="text-[10px] text-cyan-400 hover:text-cyan-300 font-mono transition cursor-pointer"
+                      >
+                        Copy All
+                      </button>
+                    )}
+                  </div>
                 </div>
-                <div className="font-mono text-[11px] text-slate-300 max-h-48 overflow-y-auto space-y-0.5 select-text">
+                <div className="p-3.5 font-mono text-[11px] text-slate-300 max-h-56 overflow-y-auto space-y-0.5 select-text">
                   {scanStatus.logs && scanStatus.logs.length > 0 ? (
-                    scanStatus.logs.map((line, idx) => (
-                      <div key={idx} className="leading-relaxed hover:bg-slate-900/40 px-1 rounded">
-                        {line}
-                      </div>
-                    ))
+                    scanStatus.logs.map((line, idx) => {
+                      let colorClass = 'text-slate-300';
+                      if (line.includes('ERROR') || line.includes('error') || line.includes('failed')) {
+                        colorClass = 'text-rose-400 font-semibold';
+                      } else if (line.includes('completed') || line.includes('Verified') || line.includes('SUCCESS')) {
+                        colorClass = 'text-emerald-400 font-semibold';
+                      } else if (line.includes('[1/8]') || line.includes('[2/8]') || line.includes('[3/8]') || line.includes('[4/8]') || line.includes('[5/8]') || line.includes('[6/8]') || line.includes('[7/8]') || line.includes('[8/8]')) {
+                        colorClass = 'text-cyan-400';
+                      }
+                      return (
+                        <div key={idx} className={`leading-relaxed hover:bg-slate-900/60 px-1.5 py-0.5 rounded transition ${colorClass}`}>
+                          {line}
+                        </div>
+                      );
+                    })
                   ) : (
-                    <p className="text-slate-500 italic">Awaiting output stream...</p>
+                    <p className="text-slate-500 italic py-2">Awaiting output stream...</p>
                   )}
                 </div>
               </div>
@@ -895,85 +933,173 @@ export default function App() {
                 </div>
 
                 {/* Target banner */}
-                <div className="p-5 rounded-xl bg-gradient-to-r from-slate-900 via-slate-900 to-slate-950 border border-slate-800 flex flex-wrap items-center justify-between gap-4">
+                <div className="p-5 rounded-2xl bg-gradient-to-r from-slate-900 via-slate-900/90 to-slate-950 border border-slate-800/90 shadow-xl flex flex-wrap items-center justify-between gap-4 relative overflow-hidden">
+                  <div className="absolute top-0 right-0 w-80 h-32 bg-cyan-500/5 rounded-full blur-3xl pointer-events-none"></div>
                   <div>
-                    <span className="text-xs uppercase tracking-wider text-slate-500 font-semibold">Active Run Target</span>
-                    <h2 className="text-2xl font-bold font-mono text-white mt-0.5">{selectedRun.target}</h2>
-                    <p className="text-xs text-slate-400 mt-1 font-mono">Workspace ID: {selectedRun.id}</p>
+                    <div className="flex items-center gap-2">
+                      <span className="text-[10px] uppercase tracking-widest text-cyan-400 font-bold px-2 py-0.5 rounded bg-cyan-950/60 border border-cyan-800/40">
+                        Active Workspace Target
+                      </span>
+                      <span className="text-xs text-slate-500 font-mono">Run: {selectedRun.id}</span>
+                    </div>
+                    <h2 className="text-2xl sm:text-3xl font-extrabold font-mono text-white mt-1 tracking-tight flex items-center gap-2">
+                      <Globe className="w-6 h-6 text-cyan-400" />
+                      <span>{selectedRun.target}</span>
+                    </h2>
                   </div>
-                  <div className="flex items-center gap-3">
-                    <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
-                      <CheckCircle2 className="w-3.5 h-3.5" /> Scope Enforced at Transport
+                  <div className="flex flex-wrap items-center gap-2.5">
+                    <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold bg-emerald-500/10 text-emerald-300 border border-emerald-500/30 shadow-sm">
+                      <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" /> Scope Enforced at Transport
                     </span>
-                    <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-blue-500/10 text-blue-400 border border-blue-500/20">
-                      <Lock className="w-3.5 h-3.5" /> 7-Check Authority Gate
+                    <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold bg-blue-500/10 text-blue-300 border border-blue-500/30 shadow-sm">
+                      <Lock className="w-3.5 h-3.5 text-blue-400" /> 7-Check Authority Gate
                     </span>
                   </div>
                 </div>
 
                 {/* Primary Metric KPI Cards */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-                  <div className="p-4 rounded-xl bg-slate-900/60 border border-slate-800 flex items-center justify-between">
+                  {/* Verified Findings */}
+                  <div className="p-5 rounded-2xl bg-gradient-to-br from-emerald-950/30 via-slate-900/90 to-slate-950 border border-emerald-500/30 shadow-lg shadow-emerald-950/20 hover:border-emerald-500/50 transition flex items-center justify-between group">
                     <div>
-                      <p className="text-xs text-slate-400 uppercase font-semibold">Verified Findings</p>
-                      <h3 className="text-2xl font-bold text-emerald-400 font-mono mt-1">{verifiedCount}</h3>
-                      <p className="text-[11px] text-slate-500 mt-0.5">Passed 7-Check readiness gate</p>
+                      <p className="text-[11px] text-emerald-300/80 uppercase font-bold tracking-wider">Verified Findings</p>
+                      <h3 className="text-3xl font-extrabold text-emerald-400 font-mono mt-1 tracking-tight">{verifiedCount}</h3>
+                      <p className="text-[11px] text-slate-400 mt-1">Confirmed by 7-Check gate</p>
                     </div>
-                    <div className="p-3 rounded-lg bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
-                      <CheckCircle2 className="w-5 h-5" />
+                    <div className="p-3.5 rounded-xl bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 group-hover:scale-110 group-hover:bg-emerald-500/20 transition">
+                      <CheckCircle2 className="w-6 h-6" />
                     </div>
                   </div>
 
-                  <div className="p-4 rounded-xl bg-slate-900/60 border border-slate-800 flex items-center justify-between">
+                  {/* Needs Manual Review */}
+                  <div className="p-5 rounded-2xl bg-gradient-to-br from-amber-950/30 via-slate-900/90 to-slate-950 border border-amber-500/30 shadow-lg shadow-amber-950/20 hover:border-amber-500/50 transition flex items-center justify-between group">
                     <div>
-                      <p className="text-xs text-slate-400 uppercase font-semibold">Needs Manual Review</p>
-                      <h3 className="text-2xl font-bold text-amber-400 font-mono mt-1">{reviewCount}</h3>
-                      <p className="text-[11px] text-slate-500 mt-0.5">Static headers or ambiguous</p>
+                      <p className="text-[11px] text-amber-300/80 uppercase font-bold tracking-wider">Needs Manual Review</p>
+                      <h3 className="text-3xl font-extrabold text-amber-400 font-mono mt-1 tracking-tight">{reviewCount}</h3>
+                      <p className="text-[11px] text-slate-400 mt-1">Headers or ambiguous cases</p>
                     </div>
-                    <div className="p-3 rounded-lg bg-amber-500/10 text-amber-400 border border-amber-500/20">
-                      <AlertTriangle className="w-5 h-5" />
+                    <div className="p-3.5 rounded-xl bg-amber-500/10 text-amber-400 border border-amber-500/30 group-hover:scale-110 group-hover:bg-amber-500/20 transition">
+                      <AlertTriangle className="w-6 h-6" />
                     </div>
                   </div>
 
-                  <div className="p-4 rounded-xl bg-slate-900/60 border border-slate-800 flex items-center justify-between">
+                  {/* Suppressed Findings */}
+                  <div className="p-5 rounded-2xl bg-gradient-to-br from-slate-900/70 via-slate-900/90 to-slate-950 border border-slate-800 shadow-lg hover:border-slate-700 transition flex items-center justify-between group">
                     <div>
-                      <p className="text-xs text-slate-400 uppercase font-semibold">Suppressed (False +)</p>
-                      <h3 className="text-2xl font-bold text-slate-400 font-mono mt-1">{suppressedCount}</h3>
-                      <p className="text-[11px] text-slate-500 mt-0.5">Filtered by soft-404/scope</p>
+                      <p className="text-[11px] text-slate-400 uppercase font-bold tracking-wider">Suppressed (False +)</p>
+                      <h3 className="text-3xl font-extrabold text-slate-400 font-mono mt-1 tracking-tight">{suppressedCount}</h3>
+                      <p className="text-[11px] text-slate-500 mt-1">Filtered by soft-404 / scope</p>
                     </div>
-                    <div className="p-3 rounded-lg bg-slate-800 text-slate-400 border border-slate-700">
-                      <XCircle className="w-5 h-5" />
+                    <div className="p-3.5 rounded-xl bg-slate-800/80 text-slate-400 border border-slate-700 group-hover:scale-110 transition">
+                      <XCircle className="w-6 h-6" />
                     </div>
                   </div>
 
-                  <div className="p-4 rounded-xl bg-slate-900/60 border border-slate-800 flex items-center justify-between">
+                  {/* Surface Discovered */}
+                  <div className="p-5 rounded-2xl bg-gradient-to-br from-cyan-950/30 via-slate-900/90 to-slate-950 border border-cyan-500/30 shadow-lg shadow-cyan-950/20 hover:border-cyan-500/50 transition flex items-center justify-between group">
                     <div>
-                      <p className="text-xs text-slate-400 uppercase font-semibold">Surface Discovered</p>
-                      <h3 className="text-2xl font-bold text-cyan-400 font-mono mt-1">{ports.length + httpx.length}</h3>
-                      <p className="text-[11px] text-slate-500 mt-0.5">{ports.length} ports, {httpx.length} HTTP hosts</p>
+                      <p className="text-[11px] text-cyan-300/80 uppercase font-bold tracking-wider">Surface Discovered</p>
+                      <h3 className="text-3xl font-extrabold text-cyan-400 font-mono mt-1 tracking-tight">{ports.length + httpx.length}</h3>
+                      <p className="text-[11px] text-slate-400 mt-1">{ports.length} ports, {httpx.length} HTTP hosts</p>
                     </div>
-                    <div className="p-3 rounded-lg bg-cyan-500/10 text-cyan-400 border border-cyan-500/20">
-                      <Globe className="w-5 h-5" />
+                    <div className="p-3.5 rounded-xl bg-cyan-500/10 text-cyan-400 border border-cyan-500/30 group-hover:scale-110 group-hover:bg-cyan-500/20 transition">
+                      <Globe className="w-6 h-6" />
                     </div>
                   </div>
                 </div>
 
-                {/* Severity Breakdown Bar */}
-                <div className="p-5 rounded-xl bg-slate-900/60 border border-slate-800 space-y-3">
-                  <div className="flex items-center justify-between">
-                    <h3 className="text-sm font-semibold text-slate-200 uppercase tracking-wide">Findings Severity Distribution</h3>
-                    <span className="text-xs text-slate-400 font-mono">{findings.length} total raw/grouped findings</span>
+                {/* Attack Surface Quick Snapshot Row */}
+                <div className="p-4 rounded-2xl bg-slate-900/60 border border-slate-800 space-y-2">
+                  <div className="flex items-center justify-between text-xs font-semibold uppercase tracking-wider text-slate-400 px-1">
+                    <span>Target Attack Surface Breakdown</span>
+                    <button
+                      onClick={() => setActiveTab('recon')}
+                      className="text-cyan-400 hover:text-cyan-300 flex items-center gap-1 normal-case font-mono transition cursor-pointer"
+                    >
+                      <span>Explore all in Attack Surface</span>
+                      <ChevronRight className="w-3.5 h-3.5" />
+                    </button>
                   </div>
+                  <div className="grid grid-cols-2 sm:grid-cols-5 gap-2.5">
+                    {[
+                      { id: 'inventory', label: 'Subdomains', count: inventory.length, icon: Globe, color: 'text-blue-400' },
+                      { id: 'ports', label: 'Open Ports', count: ports.length, icon: Server, color: 'text-cyan-400' },
+                      { id: 'httpx', label: 'Live HTTP Hosts', count: httpx.length, icon: Activity, color: 'text-teal-400' },
+                      { id: 'crawl', label: 'Crawled URLs', count: crawl.length, icon: Search, color: 'text-indigo-400' },
+                      { id: 'fuzz', label: 'Fuzzed Paths', count: fuzz.length, icon: Layers, color: 'text-purple-400' },
+                    ].map(item => {
+                      const ItemIcon = item.icon;
+                      return (
+                        <button
+                          key={item.id}
+                          onClick={() => {
+                            setReconSubTab(item.id);
+                            setActiveTab('recon');
+                          }}
+                          className="p-3 rounded-xl bg-slate-950/70 border border-slate-800/80 hover:border-slate-700 hover:bg-slate-900/80 transition text-left flex items-center justify-between group cursor-pointer"
+                        >
+                          <div>
+                            <span className="text-[10px] text-slate-400 uppercase font-semibold block">{item.label}</span>
+                            <span className="text-lg font-bold font-mono text-white mt-0.5 block">{item.count}</span>
+                          </div>
+                          <ItemIcon className={`w-4 h-4 ${item.color} opacity-70 group-hover:opacity-100 group-hover:scale-110 transition`} />
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Severity Breakdown Bar */}
+                <div className="p-5 rounded-2xl bg-slate-900/60 border border-slate-800 space-y-4">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <h3 className="text-sm font-bold text-slate-200 uppercase tracking-wide">Findings Severity Distribution</h3>
+                      <p className="text-xs text-slate-400 mt-0.5">Summary of all security issues flagged across the scan</p>
+                    </div>
+                    <span className="text-xs text-slate-400 font-mono px-2.5 py-1 rounded-lg bg-slate-950 border border-slate-800">
+                      {findings.length} Total Findings
+                    </span>
+                  </div>
+
+                  {/* Visual Proportion Bar */}
+                  {findings.length > 0 && (
+                    <div className="w-full h-3 bg-slate-950 rounded-full overflow-hidden flex p-0.5 gap-0.5 border border-slate-800">
+                      {['critical', 'high', 'medium', 'low', 'info'].map(s => {
+                        const count = severityCounts[s] || 0;
+                        if (count === 0) return null;
+                        const pct = Math.max(3, (count / findings.length) * 100);
+                        const colors = {
+                          critical: 'bg-red-500',
+                          high: 'bg-orange-500',
+                          medium: 'bg-amber-500',
+                          low: 'bg-blue-500',
+                          info: 'bg-slate-500'
+                        };
+                        return (
+                          <div
+                            key={s}
+                            style={{ width: `${pct}%` }}
+                            title={`${s.toUpperCase()}: ${count} (${Math.round((count / findings.length) * 100)}%)`}
+                            className={`${colors[s]} h-full rounded-sm transition-all duration-500`}
+                          />
+                        );
+                      })}
+                    </div>
+                  )}
+
                   <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
                     {['critical', 'high', 'medium', 'low', 'info'].map(s => {
                       const count = severityCounts[s] || 0;
                       const cfg = SEVERITY_CONFIG[s];
                       return (
-                        <div key={s} className={`p-3 rounded-lg border ${cfg.border} ${cfg.bg}`}>
-                          <div className="flex items-center justify-between">
-                            <span className="text-xs uppercase font-bold tracking-wider text-slate-300">{s}</span>
-                            <span className={`text-base font-bold font-mono ${cfg.text}`}>{count}</span>
+                        <div key={s} className={`p-3.5 rounded-xl border ${cfg.border} ${cfg.bg} flex items-center justify-between`}>
+                          <div>
+                            <span className="text-xs uppercase font-extrabold tracking-wider text-slate-300 block">{s}</span>
+                            <span className="text-[10px] text-slate-400">
+                              {findings.length > 0 ? `${Math.round((count / findings.length) * 100)}%` : '0%'}
+                            </span>
                           </div>
+                          <span className={`text-xl font-black font-mono ${cfg.text}`}>{count}</span>
                         </div>
                       );
                     })}
@@ -1096,8 +1222,15 @@ export default function App() {
                       subtitle: 'Passive Recon & DNS',
                       engine: 'subfinder, assetfinder, crt.sh, dnsx',
                       icon: Globe,
+                      accent: {
+                        border: 'hover:border-blue-500/60',
+                        badge: 'text-blue-400 bg-blue-500/10 border-blue-500/20',
+                        iconBg: 'bg-blue-500/10 text-blue-400 border-blue-500/20',
+                        btn: 'from-blue-600 to-cyan-600 hover:from-blue-500 hover:to-cyan-500',
+                      },
                       count: `${inventory.length} Subdomains`,
                       desc: 'Discovers active subdomains via certificate transparency and resolves DNS. Zero active packets sent to target web servers.',
+                      whenToUse: 'Start here to discover all websites and servers belonging to your target.',
                       actionLabel: 'Discover Subdomains',
                       viewTab: 'recon'
                     },
@@ -1107,8 +1240,15 @@ export default function App() {
                       subtitle: 'TCP Port Enumeration',
                       engine: 'naabu, nmap',
                       icon: Server,
+                      accent: {
+                        border: 'hover:border-cyan-500/60',
+                        badge: 'text-cyan-400 bg-cyan-500/10 border-cyan-500/20',
+                        iconBg: 'bg-cyan-500/10 text-cyan-400 border-cyan-500/20',
+                        btn: 'from-cyan-600 to-teal-600 hover:from-cyan-500 hover:to-teal-500',
+                      },
                       count: `${ports.length} Open Ports`,
                       desc: 'Scans top ports across discovered hosts and fingerprints running services with read-only probe signatures.',
+                      whenToUse: 'Find which network doors (ports 80, 443, 8080, etc.) are open on target servers.',
                       actionLabel: 'Scan Open Ports',
                       viewTab: 'recon'
                     },
@@ -1118,8 +1258,15 @@ export default function App() {
                       subtitle: 'HTTP/HTTPS Fingerprinting',
                       engine: 'httpx',
                       icon: Activity,
+                      accent: {
+                        border: 'hover:border-teal-500/60',
+                        badge: 'text-teal-400 bg-teal-500/10 border-teal-500/20',
+                        iconBg: 'bg-teal-500/10 text-teal-400 border-teal-500/20',
+                        btn: 'from-teal-600 to-emerald-600 hover:from-teal-500 hover:to-emerald-500',
+                      },
                       count: `${httpx.length} Web Endpoints`,
                       desc: 'Probes HTTP and HTTPS ports, extracts website titles, response status codes, web server banners, and tech stacks.',
+                      whenToUse: 'Check which open ports actually host live web applications and view technologies.',
                       actionLabel: 'Probe Web Servers',
                       viewTab: 'recon'
                     },
@@ -1129,8 +1276,15 @@ export default function App() {
                       subtitle: 'Fast URL & Endpoint Crawl',
                       engine: 'katana',
                       icon: Search,
+                      accent: {
+                        border: 'hover:border-indigo-500/60',
+                        badge: 'text-indigo-400 bg-indigo-500/10 border-indigo-500/20',
+                        iconBg: 'bg-indigo-500/10 text-indigo-400 border-indigo-500/20',
+                        btn: 'from-indigo-600 to-blue-600 hover:from-indigo-500 hover:to-blue-500',
+                      },
                       count: `${crawl.length} Crawled URLs`,
                       desc: 'Crawls live web applications to discover links, API endpoints, hidden forms, and JavaScript routes.',
+                      whenToUse: 'Automatically browse and map out every URL, page, and hidden button on the site.',
                       actionLabel: 'Crawl Endpoints',
                       viewTab: 'recon'
                     },
@@ -1140,8 +1294,15 @@ export default function App() {
                       subtitle: 'Hidden Path Discovery',
                       engine: 'ffuf',
                       icon: Layers,
+                      accent: {
+                        border: 'hover:border-purple-500/60',
+                        badge: 'text-purple-400 bg-purple-500/10 border-purple-500/20',
+                        iconBg: 'bg-purple-500/10 text-purple-400 border-purple-500/20',
+                        btn: 'from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500',
+                      },
                       count: `${fuzz.length} Paths Fuzzed`,
                       desc: 'Fuzzes web paths to discover hidden directories, configuration backups, sensitive admin panels, and files.',
+                      whenToUse: 'Detect unlinked sensitive files, backup folders (e.g. /backup.zip), or admin panels.',
                       actionLabel: 'Fuzz Directories',
                       viewTab: 'recon'
                     },
@@ -1151,8 +1312,15 @@ export default function App() {
                       subtitle: 'Safe Reflection Testing',
                       engine: 'dalfox',
                       icon: AlertOctagon,
+                      accent: {
+                        border: 'hover:border-amber-500/60',
+                        badge: 'text-amber-400 bg-amber-500/10 border-amber-500/20',
+                        iconBg: 'bg-amber-500/10 text-amber-400 border-amber-500/20',
+                        btn: 'from-amber-600 to-orange-600 hover:from-amber-500 hover:to-orange-500',
+                      },
                       count: 'Safe Parameter Probes',
                       desc: 'Tests discovered URL parameters for reflected cross-site scripting without executing destructive payloads.',
+                      whenToUse: 'Verify if input parameters safely reflect back in browser responses without risk.',
                       actionLabel: 'Test for XSS',
                       viewTab: 'findings'
                     },
@@ -1162,8 +1330,15 @@ export default function App() {
                       subtitle: 'Safe Community Templates',
                       engine: 'nuclei (read-only)',
                       icon: Shield,
+                      accent: {
+                        border: 'hover:border-rose-500/60',
+                        badge: 'text-rose-400 bg-rose-500/10 border-rose-500/20',
+                        iconBg: 'bg-rose-500/10 text-rose-400 border-rose-500/20',
+                        btn: 'from-rose-600 to-pink-600 hover:from-rose-500 hover:to-pink-500',
+                      },
                       count: 'Safe Posture Tags',
                       desc: 'Runs community-curated vulnerability templates for CVEs, exposed panels, and common security misconfigurations.',
+                      whenToUse: 'Test against thousands of known vulnerabilities using verified safe read-only checks.',
                       actionLabel: 'Run Posture Scan',
                       viewTab: 'findings'
                     },
@@ -1173,8 +1348,15 @@ export default function App() {
                       subtitle: 'Deterministic Verification',
                       engine: 'internal/validate & report',
                       icon: CheckCircle2,
+                      accent: {
+                        border: 'hover:border-emerald-500/60',
+                        badge: 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20',
+                        iconBg: 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20',
+                        btn: 'from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500',
+                      },
                       count: `${verifiedCount} Verified Findings`,
                       desc: 'Executes the authoritative 7-check readiness gate on all findings and generates HTML/Markdown executive reports.',
+                      whenToUse: 'Filter out false alarms and generate final audit reports with 100% confidence.',
                       actionLabel: 'Validate & Build Report',
                       viewTab: 'findings'
                     }
@@ -1186,11 +1368,11 @@ export default function App() {
                     return (
                       <div 
                         key={tool.key}
-                        className="p-5 rounded-xl bg-slate-900/60 border border-slate-800 flex flex-col justify-between hover:border-slate-700 transition space-y-4"
+                        className={`p-5 rounded-2xl bg-gradient-to-b from-slate-900/90 to-slate-950 border border-slate-800 shadow-xl flex flex-col justify-between transition-all duration-300 hover:shadow-2xl hover:-translate-y-0.5 space-y-4 ${tool.accent.border}`}
                       >
                         <div className="space-y-3">
                           <div className="flex items-start justify-between gap-3">
-                            <div className="p-2.5 rounded-lg bg-cyan-500/10 text-cyan-400 border border-cyan-500/20">
+                            <div className={`p-2.5 rounded-xl border ${tool.accent.iconBg} shadow-sm`}>
                               <Icon className="w-5 h-5" />
                             </div>
                             <span className="text-[10px] font-mono font-medium px-2 py-0.5 rounded-full bg-slate-800 text-slate-300 border border-slate-700 truncate max-w-[130px]" title={tool.engine}>
@@ -1199,9 +1381,9 @@ export default function App() {
                           </div>
 
                           <div>
-                            <h3 className="font-bold text-white text-base">{tool.title}</h3>
+                            <h3 className="font-bold text-white text-base tracking-tight">{tool.title}</h3>
                             <p className="text-[11px] text-cyan-400 font-medium font-mono">{tool.subtitle}</p>
-                            <div className="mt-2 text-xs font-mono font-bold text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2.5 py-1 rounded-md inline-block">
+                            <div className={`mt-2 text-xs font-mono font-bold px-2.5 py-1 rounded-md inline-block border ${tool.accent.badge}`}>
                               {tool.count}
                             </div>
                           </div>
@@ -1209,6 +1391,12 @@ export default function App() {
                           <p className="text-xs text-slate-400 leading-relaxed">
                             {tool.desc}
                           </p>
+
+                          {/* Plain-English guide for beginners */}
+                          <div className="p-2.5 rounded-xl bg-slate-950/80 border border-slate-800/80 text-[11px] text-slate-300 leading-relaxed">
+                            <span className="font-semibold text-slate-200 block mb-0.5">💡 Why run this:</span>
+                            <span className="text-slate-400">{tool.whenToUse}</span>
+                          </div>
                         </div>
 
                         <div className="space-y-2 pt-2 border-t border-slate-800/80">
@@ -1226,9 +1414,9 @@ export default function App() {
                             <button
                               onClick={() => handleExecuteTool(tool.key)}
                               disabled={isRunning || scanStatus.running || !selectedRunId}
-                              className={`flex-1 flex items-center justify-center gap-1.5 py-2 px-3 rounded-lg text-xs font-semibold transition cursor-pointer ${
+                              className={`flex-1 flex items-center justify-center gap-1.5 py-2.5 px-3 rounded-xl text-xs font-bold transition shadow-md cursor-pointer ${
                                 isRunning 
-                                  ? 'bg-cyan-600/30 border border-cyan-500/50 text-cyan-300' 
+                                  ? 'bg-cyan-600/30 border border-cyan-500/50 text-cyan-300 animate-pulse' 
                                   : 'bg-slate-800 hover:bg-slate-700 text-white border border-slate-700 hover:border-slate-600'
                               } disabled:opacity-50 disabled:cursor-not-allowed`}
                             >
@@ -1247,7 +1435,7 @@ export default function App() {
 
                             <button
                               onClick={() => setActiveTab(tool.viewTab)}
-                              className="p-2 rounded-lg bg-slate-800/50 hover:bg-slate-750 text-slate-400 hover:text-white border border-slate-700/60 transition cursor-pointer"
+                              className="p-2.5 rounded-xl bg-slate-800/50 hover:bg-slate-750 text-slate-400 hover:text-white border border-slate-700/60 transition cursor-pointer"
                               title="View results in dashboard"
                             >
                               <ExternalLink className="w-3.5 h-3.5" />
@@ -2180,203 +2368,222 @@ export default function App() {
 
       {/* NEW SCAN MODAL WIZARD */}
       {scanModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
-          <div className="bg-[#0e1628] border border-slate-700/80 rounded-2xl w-full max-w-xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
-            {/* Modal Header */}
-            <div className="p-6 border-b border-slate-800 flex items-center justify-between bg-gradient-to-r from-slate-900 to-slate-950">
-              <div className="flex items-center gap-3">
-                <div className="p-2.5 rounded-xl bg-gradient-to-tr from-cyan-600 to-blue-600 text-white shadow-lg shadow-cyan-500/20">
-                  <Zap className="w-5 h-5 fill-current" />
-                </div>
-                <div>
-                  <h3 className="text-lg font-bold text-white">Start New Security Scan</h3>
-                  <p className="text-xs text-slate-400">Automated recon, discovery, and 7-check verification</p>
-                </div>
-              </div>
-              <button
-                onClick={() => setScanModalOpen(false)}
-                className="p-1.5 text-slate-400 hover:text-white rounded-lg hover:bg-slate-800 transition cursor-pointer"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            {/* Modal Body */}
-            <form onSubmit={handleStartScan} className="p-6 space-y-5 overflow-y-auto flex-1">
-              {/* Target Domain Input */}
-              <div className="space-y-1.5">
-                <label className="text-xs font-semibold text-slate-300 uppercase tracking-wider">
-                  Target Domain or Hostname <span className="text-red-400">*</span>
-                </label>
-                <div className="relative">
-                  <Globe className="w-4 h-4 text-slate-500 absolute left-3.5 top-3" />
-                  <input
-                    type="text"
-                    required
-                    value={scanTargetInput}
-                    onChange={(e) => setScanTargetInput(e.target.value)}
-                    placeholder="e.g. example.com or app.target.com"
-                    className="w-full bg-slate-950 border border-slate-700 rounded-xl pl-10 pr-4 py-2.5 text-sm font-mono text-white placeholder-slate-500 focus:outline-none focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500"
-                    autoFocus
-                  />
-                </div>
-                <p className="text-[11px] text-slate-400">
-                  Automatically scoped to target and all subdomains (<code className="text-cyan-400">*.target.com</code>). 
-                  All out-of-scope network traffic is strictly blocked at the transport layer.
-                </p>
-              </div>
-
-              {/* Scan Mode Selection */}
-              <div className="space-y-2">
-                <label className="text-xs font-semibold text-slate-300 uppercase tracking-wider">
-                  Scan Mode Preset
-                </label>
-                <div className="grid grid-cols-1 gap-2.5">
-                  <label className={`p-3 rounded-xl border flex items-start gap-3 cursor-pointer transition ${
-                    scanMode === 'standard' ? 'bg-cyan-500/10 border-cyan-500/50 ring-1 ring-cyan-500/30' : 'bg-slate-950/60 border-slate-800 hover:border-slate-700'
-                  }`}>
-                    <input
-                      type="radio"
-                      name="scanMode"
-                      value="standard"
-                      checked={scanMode === 'standard'}
-                      onChange={() => setScanMode('standard')}
-                      className="mt-0.5 text-cyan-500 focus:ring-cyan-500 cursor-pointer"
-                    />
-                    <div className="text-xs">
-                      <span className="font-bold text-white block">Standard Security Audit (Recommended)</span>
-                      <span className="text-slate-400 leading-normal block mt-0.5">
-                        Full reconnaissance, open ports, live web tech stack, katana crawler, directory fuzzing, safe vulnerability tests, and the 7-check gate.
-                      </span>
-                    </div>
-                  </label>
-
-                  <label className={`p-3 rounded-xl border flex items-start gap-3 cursor-pointer transition ${
-                    scanMode === 'passive' ? 'bg-cyan-500/10 border-cyan-500/50 ring-1 ring-cyan-500/30' : 'bg-slate-950/60 border-slate-800 hover:border-slate-700'
-                  }`}>
-                    <input
-                      type="radio"
-                      name="scanMode"
-                      value="passive"
-                      checked={scanMode === 'passive'}
-                      onChange={() => setScanMode('passive')}
-                      className="mt-0.5 text-cyan-500 focus:ring-cyan-500 cursor-pointer"
-                    />
-                    <div className="text-xs">
-                      <span className="font-bold text-white block">Passive Recon Only (Fast & Silent)</span>
-                      <span className="text-slate-400 leading-normal block mt-0.5">
-                        Discovers subdomains and DNS records via certificate transparency logs and DNS queries. Sends zero network packets to target web servers.
-                      </span>
-                    </div>
-                  </label>
-
-                  <label className={`p-3 rounded-xl border flex items-start gap-3 cursor-pointer transition ${
-                    scanMode === 'custom' ? 'bg-cyan-500/10 border-cyan-500/50 ring-1 ring-cyan-500/30' : 'bg-slate-950/60 border-slate-800 hover:border-slate-700'
-                  }`}>
-                    <input
-                      type="radio"
-                      name="scanMode"
-                      value="custom"
-                      checked={scanMode === 'custom'}
-                      onChange={() => setScanMode('custom')}
-                      className="mt-0.5 text-cyan-500 focus:ring-cyan-500 cursor-pointer"
-                    />
-                    <div className="text-xs flex-1">
-                      <span className="font-bold text-white block">Custom Tool Selection</span>
-                      <span className="text-slate-400 leading-normal block mt-0.5">
-                        Select precisely which security stages to execute during this scan.
-                      </span>
-                    </div>
-                  </label>
-                </div>
-              </div>
-
-              {/* Custom tool checkboxes if custom mode is selected */}
-              {scanMode === 'custom' && (
-                <div className="p-4 rounded-xl bg-slate-950 border border-slate-800 space-y-2.5">
-                  <span className="text-xs font-semibold text-slate-300 uppercase tracking-wider block">
-                    Enable / Disable Stages:
-                  </span>
-                  <div className="grid grid-cols-2 gap-2 text-xs">
-                    {[
-                      { key: 'ports', label: 'Port Scanner (naabu/nmap)' },
-                      { key: 'probe', label: 'Web Prober (httpx)' },
-                      { key: 'crawl', label: 'Katana Crawler' },
-                      { key: 'fuzz', label: 'FFUF Directory Fuzzer' },
-                      { key: 'xss', label: 'Dalfox XSS Prober' },
-                      { key: 'nuclei', label: 'Nuclei Posture Checks' }
-                    ].map(item => (
-                      <label key={item.key} className="flex items-center gap-2 text-slate-300 cursor-pointer">
-                        <input
-                          type="checkbox"
-                          checked={customTools[item.key]}
-                          onChange={(e) => setCustomTools(prev => ({ ...prev, [item.key]: e.target.checked }))}
-                          className="rounded text-cyan-500 focus:ring-cyan-500 cursor-pointer"
-                        />
-                        <span>{item.label}</span>
-                      </label>
-                    ))}
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-md p-4 animate-in fade-in duration-200">
+          <div className="bg-gradient-to-b from-cyan-500/30 via-slate-700/50 to-slate-800 p-[1px] rounded-3xl w-full max-w-xl shadow-2xl overflow-hidden">
+            <div className="bg-[#0b101e] rounded-3xl overflow-hidden flex flex-col max-h-[90vh]">
+              {/* Modal Header */}
+              <div className="p-6 border-b border-slate-800 flex items-center justify-between bg-gradient-to-r from-slate-900 via-slate-900 to-slate-950">
+                <div className="flex items-center gap-3">
+                  <div className="p-3 rounded-2xl bg-gradient-to-tr from-cyan-500 to-blue-600 text-white shadow-lg shadow-cyan-500/25">
+                    <Zap className="w-5 h-5 fill-current" />
+                  </div>
+                  <div>
+                    <h3 className="text-lg font-bold text-white tracking-tight">Start New Security Scan</h3>
+                    <p className="text-xs text-slate-400">Automated recon, discovery, and 7-check verification</p>
                   </div>
                 </div>
-              )}
-
-              {/* Optional Exclusions & Rate Limit */}
-              <div className="space-y-3 pt-2 border-t border-slate-800/80">
-                <div className="space-y-1">
-                  <label className="text-xs font-semibold text-slate-400 uppercase tracking-wider flex items-center justify-between">
-                    <span>Out-of-Scope Exclusions (Optional)</span>
-                    <span className="text-[11px] font-normal text-slate-500">Comma or line separated</span>
-                  </label>
-                  <input
-                    type="text"
-                    value={outOfScopeInput}
-                    onChange={(e) => setOutOfScopeInput(e.target.value)}
-                    placeholder="e.g. admin.example.com, test.example.com"
-                    className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-xs font-mono text-slate-300 placeholder-slate-600 focus:outline-none focus:border-cyan-500"
-                  />
-                </div>
-
-                <div className="flex items-center justify-between gap-4">
-                  <span className="text-xs text-slate-400 font-medium">Request Rate Limit (req/sec):</span>
-                  <input
-                    type="number"
-                    min="1"
-                    max="200"
-                    value={rateLimitInput}
-                    onChange={(e) => setRateLimitInput(e.target.value)}
-                    className="w-24 bg-slate-950 border border-slate-800 rounded-lg px-2.5 py-1 text-xs font-mono text-white text-right focus:outline-none focus:border-cyan-500"
-                  />
-                </div>
-              </div>
-
-              {/* Modal Footer */}
-              <div className="pt-4 border-t border-slate-800 flex items-center justify-end gap-3">
                 <button
-                  type="button"
                   onClick={() => setScanModalOpen(false)}
-                  className="px-4 py-2 rounded-xl text-xs font-medium text-slate-400 hover:text-white hover:bg-slate-800 transition cursor-pointer"
+                  className="p-2 text-slate-400 hover:text-white rounded-xl hover:bg-slate-800 transition cursor-pointer"
                 >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={scanStarting || !scanTargetInput.trim()}
-                  className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-white font-bold text-xs shadow-lg shadow-cyan-500/20 transition cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  {scanStarting ? (
-                    <>
-                      <RefreshCw className="w-4 h-4 animate-spin" />
-                      <span>Launching...</span>
-                    </>
-                  ) : (
-                    <>
-                      <Play className="w-4 h-4 fill-current" />
-                      <span>Start Security Scan</span>
-                    </>
-                  )}
+                  <X className="w-5 h-5" />
                 </button>
               </div>
-            </form>
+
+              {/* Modal Body */}
+              <form onSubmit={handleStartScan} className="p-6 space-y-5 overflow-y-auto flex-1">
+                {/* Target Domain Input */}
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <label className="text-xs font-bold text-slate-300 uppercase tracking-wider">
+                      Target Domain or Hostname <span className="text-red-400">*</span>
+                    </label>
+                    <span className="text-[11px] text-cyan-400 font-mono">Scope Enforced</span>
+                  </div>
+                  <div className="relative">
+                    <Globe className="w-4 h-4 text-cyan-400 absolute left-3.5 top-3.5" />
+                    <input
+                      type="text"
+                      required
+                      value={scanTargetInput}
+                      onChange={(e) => setScanTargetInput(e.target.value)}
+                      placeholder="e.g. example.com or app.target.com"
+                      className="w-full bg-slate-950 border border-slate-700/80 rounded-xl pl-10 pr-4 py-2.5 text-sm font-mono text-white placeholder-slate-500 focus:outline-none focus:border-cyan-500 focus:ring-2 focus:ring-cyan-500/20"
+                      autoFocus
+                    />
+                  </div>
+                  {/* Quick-select chips */}
+                  <div className="flex items-center gap-2 pt-1 text-[11px] text-slate-400 flex-wrap">
+                    <span className="text-slate-500 font-semibold">Quick test:</span>
+                    {['example.com', 'testfire.net', 'scanme.nmap.org'].map(sample => (
+                      <button
+                        type="button"
+                        key={sample}
+                        onClick={() => setScanTargetInput(sample)}
+                        className="px-2 py-0.5 rounded-md bg-slate-900 hover:bg-slate-800 border border-slate-800 text-slate-300 hover:text-cyan-300 font-mono text-[10px] transition cursor-pointer"
+                      >
+                        {sample}
+                      </button>
+                    ))}
+                  </div>
+                  <p className="text-[11px] text-slate-400 leading-relaxed">
+                    Automatically scoped to target and all subdomains (<code className="text-cyan-400">*.target.com</code>). 
+                    All out-of-scope network traffic is strictly blocked at the transport layer.
+                  </p>
+                </div>
+
+                {/* Scan Mode Selection */}
+                <div className="space-y-2">
+                  <label className="text-xs font-bold text-slate-300 uppercase tracking-wider">
+                    Scan Mode Preset
+                  </label>
+                  <div className="grid grid-cols-1 gap-2.5">
+                    <label className={`p-3.5 rounded-xl border flex items-start gap-3 cursor-pointer transition ${
+                      scanMode === 'standard' ? 'bg-cyan-500/10 border-cyan-500/50 ring-1 ring-cyan-500/30' : 'bg-slate-950/60 border-slate-800 hover:border-slate-700'
+                    }`}>
+                      <input
+                        type="radio"
+                        name="scanMode"
+                        value="standard"
+                        checked={scanMode === 'standard'}
+                        onChange={() => setScanMode('standard')}
+                        className="mt-0.5 text-cyan-500 focus:ring-cyan-500 cursor-pointer"
+                      />
+                      <div className="text-xs">
+                        <span className="font-bold text-white block">Standard Security Audit (Recommended)</span>
+                        <span className="text-slate-400 leading-normal block mt-0.5">
+                          Full reconnaissance, open ports, live web tech stack, katana crawler, directory fuzzing, safe vulnerability tests, and the 7-check gate.
+                        </span>
+                      </div>
+                    </label>
+
+                    <label className={`p-3.5 rounded-xl border flex items-start gap-3 cursor-pointer transition ${
+                      scanMode === 'passive' ? 'bg-cyan-500/10 border-cyan-500/50 ring-1 ring-cyan-500/30' : 'bg-slate-950/60 border-slate-800 hover:border-slate-700'
+                    }`}>
+                      <input
+                        type="radio"
+                        name="scanMode"
+                        value="passive"
+                        checked={scanMode === 'passive'}
+                        onChange={() => setScanMode('passive')}
+                        className="mt-0.5 text-cyan-500 focus:ring-cyan-500 cursor-pointer"
+                      />
+                      <div className="text-xs">
+                        <span className="font-bold text-white block">Passive Recon Only (Fast & Silent)</span>
+                        <span className="text-slate-400 leading-normal block mt-0.5">
+                          Discovers subdomains and DNS records via certificate transparency logs and DNS queries. Sends zero network packets to target web servers.
+                        </span>
+                      </div>
+                    </label>
+
+                    <label className={`p-3.5 rounded-xl border flex items-start gap-3 cursor-pointer transition ${
+                      scanMode === 'custom' ? 'bg-cyan-500/10 border-cyan-500/50 ring-1 ring-cyan-500/30' : 'bg-slate-950/60 border-slate-800 hover:border-slate-700'
+                    }`}>
+                      <input
+                        type="radio"
+                        name="scanMode"
+                        value="custom"
+                        checked={scanMode === 'custom'}
+                        onChange={() => setScanMode('custom')}
+                        className="mt-0.5 text-cyan-500 focus:ring-cyan-500 cursor-pointer"
+                      />
+                      <div className="text-xs flex-1">
+                        <span className="font-bold text-white block">Custom Tool Selection</span>
+                        <span className="text-slate-400 leading-normal block mt-0.5">
+                          Select precisely which security stages to execute during this scan.
+                        </span>
+                      </div>
+                    </label>
+                  </div>
+                </div>
+
+                {/* Custom tool checkboxes if custom mode is selected */}
+                {scanMode === 'custom' && (
+                  <div className="p-4 rounded-xl bg-slate-950 border border-slate-800 space-y-2.5">
+                    <span className="text-xs font-semibold text-slate-300 uppercase tracking-wider block">
+                      Enable / Disable Stages:
+                    </span>
+                    <div className="grid grid-cols-2 gap-2 text-xs">
+                      {[
+                        { key: 'ports', label: 'Port Scanner (naabu/nmap)' },
+                        { key: 'probe', label: 'Web Prober (httpx)' },
+                        { key: 'crawl', label: 'Katana Crawler' },
+                        { key: 'fuzz', label: 'FFUF Directory Fuzzer' },
+                        { key: 'xss', label: 'Dalfox XSS Prober' },
+                        { key: 'nuclei', label: 'Nuclei Posture Checks' }
+                      ].map(item => (
+                        <label key={item.key} className="flex items-center gap-2 text-slate-300 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={customTools[item.key]}
+                            onChange={(e) => setCustomTools(prev => ({ ...prev, [item.key]: e.target.checked }))}
+                            className="rounded text-cyan-500 focus:ring-cyan-500 cursor-pointer"
+                          />
+                          <span>{item.label}</span>
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Optional Exclusions & Rate Limit */}
+                <div className="space-y-3 pt-2 border-t border-slate-800/80">
+                  <div className="space-y-1">
+                    <label className="text-xs font-semibold text-slate-400 uppercase tracking-wider flex items-center justify-between">
+                      <span>Out-of-Scope Exclusions (Optional)</span>
+                      <span className="text-[11px] font-normal text-slate-500">Comma or line separated</span>
+                    </label>
+                    <input
+                      type="text"
+                      value={outOfScopeInput}
+                      onChange={(e) => setOutOfScopeInput(e.target.value)}
+                      placeholder="e.g. admin.example.com, test.example.com"
+                      className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-xs font-mono text-slate-300 placeholder-slate-600 focus:outline-none focus:border-cyan-500"
+                    />
+                  </div>
+
+                  <div className="flex items-center justify-between gap-4">
+                    <span className="text-xs text-slate-400 font-medium">Request Rate Limit (req/sec):</span>
+                    <input
+                      type="number"
+                      min="1"
+                      max="200"
+                      value={rateLimitInput}
+                      onChange={(e) => setRateLimitInput(e.target.value)}
+                      className="w-24 bg-slate-950 border border-slate-800 rounded-lg px-2.5 py-1 text-xs font-mono text-white text-right focus:outline-none focus:border-cyan-500"
+                    />
+                  </div>
+                </div>
+
+                {/* Modal Footer */}
+                <div className="pt-4 border-t border-slate-800 flex items-center justify-end gap-3">
+                  <button
+                    type="button"
+                    onClick={() => setScanModalOpen(false)}
+                    className="px-4 py-2 rounded-xl text-xs font-medium text-slate-400 hover:text-white hover:bg-slate-800 transition cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={scanStarting || !scanTargetInput.trim()}
+                    className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-white font-bold text-xs shadow-lg shadow-cyan-500/20 transition cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {scanStarting ? (
+                      <>
+                        <RefreshCw className="w-4 h-4 animate-spin" />
+                        <span>Launching...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Play className="w-4 h-4 fill-current" />
+                        <span>Start Security Scan</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+              </form>
+            </div>
           </div>
         </div>
       )}

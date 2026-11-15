@@ -623,3 +623,38 @@ The ffuf path wordlist (`internal/tools/wordlist_paths.txt`) is `//go:embed`-ed 
    - All 8 Vitest frontend tests pass (`npm --prefix web test -- --run`).
    - All Go package tests pass (`go test ./...`).
    - Production bundle compiled cleanly into `web/dist/`.
+
+## Phase 9: UI Visual Polish & Cyber Dark Aesthetic Design Refinement ✅
+
+### What Was Built
+
+1. **Cyber Dark Aesthetic Design System (`web/src/index.css`)**:
+   - Implemented ambient mesh radial gradients (`.bg-ambient-mesh`) layered behind the dark viewport.
+   - Built modern `.glass-panel` and `.glass-card` CSS utility classes with translucent borders and soft shadows.
+   - Added smooth micro-animations: `@keyframes shimmer` for glowing sweeps and `@keyframes cyber-pulse` for live status indicators.
+   - Configured custom slim cyber scrollbars.
+
+2. **Overview Tab Visual Elevation (`web/src/App.jsx`)**:
+   - Enhanced Primary Metric KPI cards with gradient borders, glow badges, and hover lifts:
+     - Verified Findings: glowing emerald card (`from-emerald-950/30 via-slate-900/90 to-slate-950`).
+     - Needs Manual Review: glowing amber card (`from-amber-950/30 via-slate-900/90 to-slate-950`).
+     - Suppressed: dark slate card with clean border.
+     - Surface Discovered: glowing cyan card (`from-cyan-950/30 via-slate-900/90 to-slate-950`).
+   - Built **Target Attack Surface Breakdown Row**: interactive 5-item quick-snapshot strip (Subdomains, Open Ports, Live HTTP Hosts, Crawled URLs, Fuzzed Paths) with 1-click navigation into detailed subtabs.
+   - Added visual proportional severity meter: multi-colored progress bar displaying percentage and counts for Critical, High, Medium, Low, and Info findings.
+
+3. **Tools Center Visual Elevation**:
+   - Enhanced all 8 tool cards with category-specific themed accents (Blue, Cyan, Teal, Indigo, Purple, Amber, Rose, Emerald).
+   - Added beginner-friendly "💡 Why run this:" callout on every card explaining in plain English when and why to run each tool.
+   - Real-time animated execution feedback badges.
+
+4. **New Scan Wizard Polish**:
+   - Wrapped modal in glowing cyber neon gradient border with backdrop blur.
+   - Added 1-click quick test domain chips (`example.com`, `testfire.net`, `scanme.nmap.org`).
+   - Preserved strict transport-layer scope guard enforcement notice.
+
+5. **Verification**:
+   - `npm --prefix web test -- --run`: 8/8 tests pass.
+   - `npm --prefix web run build`: 0 errors.
+   - `go test ./...`: 100% pass across all 15 packages.
+   - `go vet ./...`: 0 warnings or errors.
