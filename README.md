@@ -48,6 +48,9 @@ and individual stages can be skipped with `--skip-<stage>` flags in `run`.
 | `scoutr triage` | Tier-2 LLM triage over validated findings |
 | `scoutr report` | Markdown/HTML/JSON reports; `--draft` writes evidence-derived drafts |
 | `scoutr submit` | Interactive, local-only approval queue |
+| `scoutr idor` | Candidate inventory extraction, differential testing, and reporting |
+| `scoutr rce` | Execution sink discovery, multi-step chains, advisory correlation, and 3-profile validation |
+| `scoutr ui` | Launch local web research dashboard & REST API on loopback |
 | `scoutr run` | Full pipeline with workspace persistence |
 | `scoutr arsenal` | Show external-tool availability and install hints |
 
@@ -67,13 +70,35 @@ win over defaults. Results go to stdout (or `-o`), all narration to stderr.
   endpoint, configured with `--llm-*` flags; `--no-llm` forces deterministic
   degradation.
 
+## Web Interface & Local API
+
+Launch the unified browser-based dashboard with:
+
+```bash
+scoutr ui --scope scope.yaml [--port 8765]
+```
+
+The web dashboard provides:
+- **Endpoints Explorer**: Deep route catalog, parameterized routes, query/body inspectors, and 1-click IDOR queueing.
+- **IDOR Research Center**: Multi-tenant/dual-profile management, HAR file ingestion, candidate object reference extraction, and differential matrix visualization with reproduction evidence.
+- **RCE Research Center**: Attack surface discovery across 6 execution sinks, multi-step processing chain tracking, curated CVE advisory correlation with 6-stage reachability progression, deterministic prioritization queue, and 3-profile validation (Passive, Safe Active marker probes, Manual plans).
+- **Live SSE Streaming**: Real-time progress updates, background job management, and log telemetry.
+- **Local API Security**: Binds strictly to loopback (`127.0.0.1`), enforces Host header validation, loopback CORS, 32-byte cryptographic session tokens (`X-Scoutr-Token`), anti-CSRF headers, path traversal guards, and OS-level ACLs (Windows `icacls`, Unix `0600`) for test credentials.
+
 ## Build, test, CI
 
 ```bash
-make build      # go build -o scoutr.exe ./cmd/scoutr
-make test       # go test ./...
-make fmt-check  # fail if anything is not gofmt'd
-make ci         # fmt-check + vet + build + test (same gate as CI)
+make build                 # go build -o scoutr.exe ./cmd/scoutr
+make test                  # go test ./... (all 19 packages)
+make fmt-check             # fail if anything is not gofmt'd
+make ci                    # fmt-check + vet + build + test (same gate as CI)
+
+# Frontend Tests
+npm --prefix web test      # run Vitest unit test suite (17 tests)
+npm --prefix web run build # compile production web frontend bundle
+
+# End-to-End Browser Tests
+cd web && npx playwright test # run Playwright E2E browser test suite (7 workflows)
 ```
 
 ## Known limitations

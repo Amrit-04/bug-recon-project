@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -11,7 +12,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/scoutr/scoutr/internal/auth"
+	"github.com/scoutr/scoutr/internal/endpoints"
 	"github.com/scoutr/scoutr/internal/findings"
+	"github.com/scoutr/scoutr/internal/idor"
+	"github.com/scoutr/scoutr/internal/rce"
 	"github.com/scoutr/scoutr/internal/tools"
 	"github.com/scoutr/scoutr/internal/triage"
 	"github.com/scoutr/scoutr/internal/validate"
@@ -584,4 +589,769 @@ func TestServerModularToolExecution(t *testing.T) {
 	if _, err := ws.LoadInventory(); err != nil {
 		t.Errorf("load inventory after runs: %v", err)
 	}
+}
+
+func TestStatusAndScopeAPIs(t *testing.T) {
+	tmpDir := t.TempDir()
+	s, err := New(Config{
+		RunsDir: filepath.Join(tmpDir, "runs"),
+	})
+	if err != nil {
+		t.Fatalf("New server: %v", err)
+	}
+
+	handler := s.Routes()
+
+	// 1. Status API
+	reqStatus := httptest.NewRequest(http.MethodGet, "/api/status", nil)
+	rrStatus := httptest.NewRecorder()
+	handler.ServeHTTP(rrStatus, reqStatus)
+	if rrStatus.Code != http.StatusOK {
+		t.Fatalf("status code = %d, want 200", rrStatus.Code)
+	}
+
+	var statusMap map[string]any
+	_ = json.Unmarshal(rrStatus.Body.Bytes(), &statusMap)
+	if statusMap["status"] != "online" {
+		t.Errorf("status = %v, want online", statusMap["status"])
+	}
+
+	// 2. Scope POST validate
+	reqScope := httptest.NewRequest(http.MethodPost, "/api/scope", strings.NewReader(`{
+		"in_scope": ["example.com", "*.example.com"],
+		"out_of_scope": ["admin.example.com"],
+		"test_target": "https://api.example.com/test"
+	}`))
+	rrScope := httptest.NewRecorder()
+	handler.ServeHTTP(rrScope, reqScope)
+	if rrScope.Code != http.StatusOK {
+		t.Fatalf("scope post code = %d, want 200", rrScope.Code)
+	}
+
+	var scopeResp map[string]any
+	_ = json.Unmarshal(rrScope.Body.Bytes(), &scopeResp)
+	if scopeResp["in_scope"] != true {
+		t.Errorf("expected test_target in_scope = true, got %v", scopeResp["in_scope"])
+	}
+}
+
+func TestWorkspacesAPI(t *testing.T) {
+	tmpDir := t.TempDir()
+	s, err := New(Config{
+		RunsDir: filepath.Join(tmpDir, "runs"),
+	})
+	if err != nil {
+		t.Fatalf("New server: %v", err)
+	}
+
+	handler := s.Routes()
+
+	// Create workspace
+	reqCreate := httptest.NewRequest(http.MethodPost, "/api/workspaces", strings.NewReader(`{"target":"acme.org"}`))
+	rrCreate := httptest.NewRecorder()
+	handler.ServeHTTP(rrCreate, reqCreate)
+	if rrCreate.Code != http.StatusCreated {
+		t.Fatalf("create workspace code = %d, want 201: %s", rrCreate.Code, rrCreate.Body.String())
+	}
+
+	var wsResp map[string]any
+	_ = json.Unmarshal(rrCreate.Body.Bytes(), &wsResp)
+	runID, _ := wsResp["id"].(string)
+	if runID == "" {
+		t.Fatal("expected non-empty workspace id")
+	}
+
+	// List workspaces
+	reqList := httptest.NewRequest(http.MethodGet, "/api/workspaces", nil)
+	rrList := httptest.NewRecorder()
+	handler.ServeHTTP(rrList, reqList)
+	if rrList.Code != http.StatusOK {
+		t.Fatalf("list workspaces code = %d, want 200", rrList.Code)
+	}
+	var runs []RunSummary
+	_ = json.Unmarshal(rrList.Body.Bytes(), &runs)
+	if len(runs) != 1 || runs[0].ID != runID {
+		t.Errorf("expected run %s in list, got %+v", runID, runs)
+	}
+}
+
+func TestJobManagerAndSSEEvents(t *testing.T) {
+	tmpDir := t.TempDir()
+	broker := NewEventBroker(100)
+	storagePath := filepath.Join(tmpDir, "jobs.json")
+
+	jm, err := NewJobManager(storagePath, 2, broker)
+	if err != nil {
+		t.Fatalf("NewJobManager: %v", err)
+	}
+	defer jm.Close()
+
+	// Subscribe to broker
+	eventsCh, unsub := broker.Subscribe("")
+	defer unsub()
+
+	// Submit a fast background job
+	doneCh := make(chan struct{})
+	job, err := jm.Submit("test_job", "ws-1", "example.com", nil, func(ctx context.Context, j *Job, update func(int, string, string, int), emitLog func(string)) error {
+		update(1, "processing", "Doing work", 50)
+		emitLog("Job progress step")
+		close(doneCh)
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("Submit job: %v", err)
+	}
+
+	select {
+	case <-doneCh:
+	case <-time.After(2 * time.Second):
+		t.Fatal("job timed out")
+	}
+
+	// Wait briefly for completion
+	time.Sleep(100 * time.Millisecond)
+
+	j, err := jm.GetJob(job.ID)
+	if err != nil {
+		t.Fatalf("GetJob: %v", err)
+	}
+	if j.Status != JobStatusCompleted {
+		t.Errorf("job status = %s, want Completed", j.Status)
+	}
+
+	// Check that broker received events
+	receivedProgress := false
+	receivedLog := false
+	for len(eventsCh) > 0 {
+		ev := <-eventsCh
+		if ev.Type == EventProgress {
+			receivedProgress = true
+		}
+		if ev.Type == EventLog {
+			receivedLog = true
+		}
+	}
+	if !receivedProgress {
+		t.Error("expected EventProgress in SSE broker")
+	}
+	if !receivedLog {
+		t.Error("expected EventLog in SSE broker")
+	}
+
+	// Test cancellation
+	cancelDone := make(chan struct{})
+	jobCancel, err := jm.Submit("cancel_job", "ws-1", "example.com", nil, func(ctx context.Context, j *Job, update func(int, string, string, int), emitLog func(string)) error {
+		<-ctx.Done()
+		close(cancelDone)
+		return ctx.Err()
+	})
+	if err != nil {
+		t.Fatalf("Submit cancel job: %v", err)
+	}
+
+	// Wait for job to start running
+	time.Sleep(50 * time.Millisecond)
+
+	err = jm.CancelJob(jobCancel.ID)
+	if err != nil {
+		t.Fatalf("CancelJob: %v", err)
+	}
+
+	select {
+	case <-cancelDone:
+	case <-time.After(2 * time.Second):
+		t.Fatal("context cancellation did not propagate")
+	}
+
+	time.Sleep(50 * time.Millisecond)
+	jc, _ := jm.GetJob(jobCancel.ID)
+	if jc.Status != JobStatusCancelled {
+		t.Errorf("expected JobStatusCancelled, got %s", jc.Status)
+	}
+}
+
+func TestEndpointsExplorerAPI(t *testing.T) {
+	baseDir := t.TempDir()
+	ws, runID := createTestWorkspaceWithArtifacts(t, baseDir)
+
+	// Save endpoints artifact
+	endpointsList := []*endpoints.Endpoint{
+		{
+			Origin:           "https://api.example.com",
+			URL:              "https://api.example.com/api/v1/users/{id}",
+			NormalizedRoute:  "/api/v1/users/{id}",
+			Methods:          []string{"GET", "POST"},
+			QueryParams:      []string{"filter", "limit"},
+			BodyFields:       []string{"role"},
+			TechFingerprints: []string{"nginx", "django"},
+			Classifications: []endpoints.ClassificationResult{
+				{Category: endpoints.ClassUserData, Priority: 8},
+			},
+			AuthObservations: []endpoints.AuthObservation{
+				{Status: endpoints.AuthStatusAuthenticated, PrincipalLabel: "user_a"},
+			},
+		},
+		{
+			Origin:           "https://admin.example.com",
+			URL:              "https://admin.example.com/upload",
+			NormalizedRoute:  "/upload",
+			Methods:          []string{"POST"},
+			TechFingerprints: []string{"express"},
+			Classifications: []endpoints.ClassificationResult{
+				{Category: endpoints.ClassFileProcess, Priority: 9},
+			},
+			AuthObservations: []endpoints.AuthObservation{
+				{Status: endpoints.AuthStatusAnonymous},
+			},
+		},
+	}
+	_ = ws.SaveArtifact(workspace.EndpointsFile, endpointsList)
+
+	s, err := New(Config{RunsDir: baseDir})
+	if err != nil {
+		t.Fatalf("New server: %v", err)
+	}
+	defer s.jobs.Close()
+	handler := s.Routes()
+
+	// 1. Get all endpoints
+	reqAll := httptest.NewRequest(http.MethodGet, "/api/runs/"+runID+"/endpoints", nil)
+	rrAll := httptest.NewRecorder()
+	handler.ServeHTTP(rrAll, reqAll)
+	if rrAll.Code != http.StatusOK {
+		t.Fatalf("endpoints code = %d, want 200", rrAll.Code)
+	}
+
+	var respAll struct {
+		Total     int                   `json:"total"`
+		Endpoints []*endpoints.Endpoint `json:"endpoints"`
+	}
+	_ = json.Unmarshal(rrAll.Body.Bytes(), &respAll)
+	if respAll.Total != 2 {
+		t.Errorf("total endpoints = %d, want 2", respAll.Total)
+	}
+
+	// 2. Filter by host
+	reqHost := httptest.NewRequest(http.MethodGet, "/api/runs/"+runID+"/endpoints?host=admin.example.com", nil)
+	rrHost := httptest.NewRecorder()
+	handler.ServeHTTP(rrHost, reqHost)
+	var respHost struct {
+		Total int `json:"total"`
+	}
+	_ = json.Unmarshal(rrHost.Body.Bytes(), &respHost)
+	if respHost.Total != 1 {
+		t.Errorf("filtered by host = %d, want 1", respHost.Total)
+	}
+
+	// 3. Filter by method
+	reqMethod := httptest.NewRequest(http.MethodGet, "/api/runs/"+runID+"/endpoints?method=GET", nil)
+	rrMethod := httptest.NewRecorder()
+	handler.ServeHTTP(rrMethod, reqMethod)
+	var respMethod struct {
+		Total int `json:"total"`
+	}
+	_ = json.Unmarshal(rrMethod.Body.Bytes(), &respMethod)
+	if respMethod.Total != 1 {
+		t.Errorf("filtered by method = %d, want 1", respMethod.Total)
+	}
+}
+
+func TestAuthProfilesAndIDORAPIs(t *testing.T) {
+	baseDir := t.TempDir()
+	ws, runID := createTestWorkspaceWithArtifacts(t, baseDir)
+
+	s, err := New(Config{RunsDir: baseDir})
+	if err != nil {
+		t.Fatalf("New server: %v", err)
+	}
+	defer s.jobs.Close()
+	handler := s.Routes()
+
+	// 1. Save Profile A (User A)
+	reqProfA := httptest.NewRequest(http.MethodPost, "/api/runs/"+runID+"/auth/profiles", strings.NewReader(`{
+		"principal_label": "user_a",
+		"tenant_label": "tenant_1",
+		"instance_label": "default",
+		"role_label": "admin",
+		"auth_type": "bearer",
+		"token": "secret_token_12345"
+	}`))
+	rrProfA := httptest.NewRecorder()
+	handler.ServeHTTP(rrProfA, reqProfA)
+	if rrProfA.Code != http.StatusOK {
+		t.Fatalf("save profile A code = %d, want 200: %s", rrProfA.Code, rrProfA.Body.String())
+	}
+
+	// 2. Save Profile B (User B)
+	reqProfB := httptest.NewRequest(http.MethodPost, "/api/runs/"+runID+"/auth/profiles", strings.NewReader(`{
+		"principal_label": "user_b",
+		"tenant_label": "tenant_2",
+		"instance_label": "default",
+		"role_label": "member",
+		"auth_type": "bearer",
+		"token": "different_secret_67890"
+	}`))
+	rrProfB := httptest.NewRecorder()
+	handler.ServeHTTP(rrProfB, reqProfB)
+	if rrProfB.Code != http.StatusOK {
+		t.Fatalf("save profile B code = %d, want 200", rrProfB.Code)
+	}
+
+	// 3. List profiles - credentials MUST be redacted!
+	reqListProf := httptest.NewRequest(http.MethodGet, "/api/runs/"+runID+"/auth/profiles", nil)
+	rrListProf := httptest.NewRecorder()
+	handler.ServeHTTP(rrListProf, reqListProf)
+	if rrListProf.Code != http.StatusOK {
+		t.Fatalf("list profiles code = %d, want 200", rrListProf.Code)
+	}
+
+	var summaries []auth.ProfileSummary
+	_ = json.Unmarshal(rrListProf.Body.Bytes(), &summaries)
+	if len(summaries) != 2 {
+		t.Fatalf("expected 2 profiles, got %d", len(summaries))
+	}
+	// Check secret redaction
+	bodyStr := rrListProf.Body.String()
+	if strings.Contains(bodyStr, "secret_token_12345") || strings.Contains(bodyStr, "different_secret_67890") {
+		t.Fatalf("RAW CREDENTIALS LEAKED IN PROFILES API RESPONSE! Body: %s", bodyStr)
+	}
+
+	// 4. Save candidates artifact to test IDOR endpoints
+	objInv := idor.NewObjectInventory()
+	objInv.Add(idor.ObjectReference{
+		ID:             "cand-1",
+		ObjectID:       "1001",
+		Location:       idor.LocationPath,
+		ParamName:      "id",
+		RouteTemplate:  "/api/docs/{id}",
+		TargetURL:      "https://example.com/api/docs/1001",
+		Method:         "GET",
+		OwnerPrincipal: "user_a",
+		OwnerTenant:    "tenant_1",
+		AccessPolicy:   idor.AccessPolicyPrivate,
+	})
+	_ = objInv.SaveJSON(filepath.Join(ws.Dir, workspace.IDORCandidatesFile))
+
+	// 5. List candidates
+	reqCand := httptest.NewRequest(http.MethodGet, "/api/runs/"+runID+"/idor/candidates", nil)
+	rrCand := httptest.NewRecorder()
+	handler.ServeHTTP(rrCand, reqCand)
+	if rrCand.Code != http.StatusOK {
+		t.Fatalf("list candidates code = %d, want 200", rrCand.Code)
+	}
+	var candResp struct {
+		Total      int                    `json:"total"`
+		Candidates []idor.ObjectReference `json:"candidates"`
+	}
+	_ = json.Unmarshal(rrCand.Body.Bytes(), &candResp)
+	if candResp.Total != 1 || candResp.Candidates[0].ObjectID != "1001" {
+		t.Errorf("expected 1 candidate with id 1001, got %+v", candResp)
+	}
+
+	// 6. Update candidate policy
+	reqPolicy := httptest.NewRequest(http.MethodPut, "/api/runs/"+runID+"/idor/candidates/cand-1/policy", strings.NewReader(`{
+		"access_policy": "explicitly_shared",
+		"allowed_roles": ["admin"]
+	}`))
+	rrPolicy := httptest.NewRecorder()
+	handler.ServeHTTP(rrPolicy, reqPolicy)
+	if rrPolicy.Code != http.StatusOK {
+		t.Fatalf("update policy code = %d, want 200: %s", rrPolicy.Code, rrPolicy.Body.String())
+	}
+	var updatedCand idor.ObjectReference
+	_ = json.Unmarshal(rrPolicy.Body.Bytes(), &updatedCand)
+	if updatedCand.AccessPolicy != "explicitly_shared" {
+		t.Errorf("access policy = %s, want explicitly_shared", updatedCand.AccessPolicy)
+	}
+}
+
+func TestServerHostHeaderValidation(t *testing.T) {
+	s, err := New(Config{
+		RunsDir: t.TempDir(),
+		Addr:    "127.0.0.1:0",
+	})
+	if err != nil {
+		t.Fatalf("New server: %v", err)
+	}
+	if err := s.Start(); err != nil {
+		t.Fatalf("Start server: %v", err)
+	}
+	defer s.Shutdown(context.Background())
+
+	baseURL := s.URL()
+	client := &http.Client{Timeout: 3 * time.Second}
+
+	// 1. Valid Host header (127.0.0.1:port)
+	req1, _ := http.NewRequest(http.MethodGet, baseURL+"/api/status", nil)
+	resp1, err := client.Do(req1)
+	if err != nil {
+		t.Fatalf("GET /api/status: %v", err)
+	}
+	resp1.Body.Close()
+	if resp1.StatusCode != http.StatusOK {
+		t.Errorf("expected 200 for valid host, got %d", resp1.StatusCode)
+	}
+
+	// 2. Invalid Host header (evil.com) -> DNS rebinding attempt
+	req2, _ := http.NewRequest(http.MethodGet, baseURL+"/api/status", nil)
+	req2.Host = "evil.com"
+	resp2, err := client.Do(req2)
+	if err != nil {
+		t.Fatalf("GET /api/status with evil.com: %v", err)
+	}
+	resp2.Body.Close()
+	if resp2.StatusCode != http.StatusForbidden {
+		t.Errorf("expected 403 Forbidden for evil.com Host header, got %d", resp2.StatusCode)
+	}
+
+	// 3. Valid Host header with localhost
+	req3, _ := http.NewRequest(http.MethodGet, baseURL+"/api/status", nil)
+	req3.Host = "localhost"
+	resp3, err := client.Do(req3)
+	if err != nil {
+		t.Fatalf("GET /api/status with localhost: %v", err)
+	}
+	resp3.Body.Close()
+	if resp3.StatusCode != http.StatusOK {
+		t.Errorf("expected 200 for localhost Host header, got %d", resp3.StatusCode)
+	}
+}
+
+func TestServerAntiCSRFAndToken(t *testing.T) {
+	s, err := New(Config{
+		RunsDir: t.TempDir(),
+		Addr:    "127.0.0.1:0",
+	})
+	if err != nil {
+		t.Fatalf("New server: %v", err)
+	}
+	if err := s.Start(); err != nil {
+		t.Fatalf("Start server: %v", err)
+	}
+	defer s.Shutdown(context.Background())
+
+	baseURL := s.URL()
+	client := &http.Client{Timeout: 3 * time.Second}
+
+	// 1. Retrieve API token
+	respToken, err := client.Get(baseURL + "/api/auth/token")
+	if err != nil {
+		t.Fatalf("GET /api/auth/token: %v", err)
+	}
+	defer respToken.Body.Close()
+	if respToken.StatusCode != http.StatusOK {
+		t.Fatalf("GET /api/auth/token status = %d", respToken.StatusCode)
+	}
+	var tokenData struct {
+		Token string `json:"token"`
+	}
+	_ = json.NewDecoder(respToken.Body).Decode(&tokenData)
+	if tokenData.Token == "" || len(tokenData.Token) != 64 {
+		t.Errorf("expected 64-char hex token, got %q", tokenData.Token)
+	}
+
+	// 2. Unauthenticated POST over TCP without headers -> 403 Forbidden
+	reqNoAuth, _ := http.NewRequest(http.MethodPost, baseURL+"/api/workspaces", strings.NewReader(`{"target":"csrf-test.com"}`))
+	respNoAuth, err := client.Do(reqNoAuth)
+	if err != nil {
+		t.Fatalf("POST /api/workspaces without auth: %v", err)
+	}
+	respNoAuth.Body.Close()
+	if respNoAuth.StatusCode != http.StatusForbidden {
+		t.Errorf("expected 403 Forbidden for state change without token/headers, got %d", respNoAuth.StatusCode)
+	}
+
+	// 3. POST with X-Requested-With: Scoutr -> 201 Created
+	reqReqWith, _ := http.NewRequest(http.MethodPost, baseURL+"/api/workspaces", strings.NewReader(`{"target":"reqwith-test.com"}`))
+	reqReqWith.Header.Set("X-Requested-With", "Scoutr")
+	respReqWith, err := client.Do(reqReqWith)
+	if err != nil {
+		t.Fatalf("POST /api/workspaces with X-Requested-With: %v", err)
+	}
+	respReqWith.Body.Close()
+	if respReqWith.StatusCode != http.StatusCreated {
+		t.Errorf("expected 201 Created with X-Requested-With: Scoutr, got %d", respReqWith.StatusCode)
+	}
+
+	// 4. POST with X-Scoutr-Token -> 201 Created
+	reqTokenAuth, _ := http.NewRequest(http.MethodPost, baseURL+"/api/workspaces", strings.NewReader(`{"target":"token-test.com"}`))
+	reqTokenAuth.Header.Set("X-Scoutr-Token", tokenData.Token)
+	respTokenAuth, err := client.Do(reqTokenAuth)
+	if err != nil {
+		t.Fatalf("POST /api/workspaces with X-Scoutr-Token: %v", err)
+	}
+	respTokenAuth.Body.Close()
+	if respTokenAuth.StatusCode != http.StatusCreated {
+		t.Errorf("expected 201 Created with X-Scoutr-Token, got %d", respTokenAuth.StatusCode)
+	}
+
+	// 5. POST with X-Requested-With but cross-origin attacker Origin -> 403 Forbidden
+	reqCross, _ := http.NewRequest(http.MethodPost, baseURL+"/api/workspaces", strings.NewReader(`{"target":"cross-test.com"}`))
+	reqCross.Header.Set("X-Requested-With", "Scoutr")
+	reqCross.Header.Set("Origin", "https://attacker.evil.com")
+	respCross, err := client.Do(reqCross)
+	if err != nil {
+		t.Fatalf("POST /api/workspaces with attacker Origin: %v", err)
+	}
+	respCross.Body.Close()
+	if respCross.StatusCode != http.StatusForbidden {
+		t.Errorf("expected 403 Forbidden for cross-origin state change, got %d", respCross.StatusCode)
+	}
+}
+
+func TestServerPathTraversalHardening(t *testing.T) {
+	tmpDir := t.TempDir()
+	runsDir := filepath.Join(tmpDir, "runs")
+	s, err := New(Config{RunsDir: runsDir})
+	if err != nil {
+		t.Fatalf("New server: %v", err)
+	}
+	handler := s.Routes()
+
+	// 1. Invalid run ID with ..
+	req1 := httptest.NewRequest(http.MethodGet, "/api/runs/..%2F..%2Fetc/inventory", nil)
+	rr1 := httptest.NewRecorder()
+	handler.ServeHTTP(rr1, req1)
+	if rr1.Code != http.StatusBadRequest {
+		t.Errorf("expected 400 for traversal run ID, got %d", rr1.Code)
+	}
+
+	// 2. Invalid workspace creation target with path traversal
+	req2 := httptest.NewRequest(http.MethodPost, "/api/workspaces", strings.NewReader(`{"target":"../../escaped"}`))
+	rr2 := httptest.NewRecorder()
+	handler.ServeHTTP(rr2, req2)
+	if rr2.Code != http.StatusBadRequest {
+		t.Errorf("expected 400 for traversal workspace target, got %d", rr2.Code)
+	}
+
+	// 3. Invalid job ID with path traversal
+	req3 := httptest.NewRequest(http.MethodGet, "/api/jobs/..%2Fbadjob", nil)
+	rr3 := httptest.NewRecorder()
+	handler.ServeHTTP(rr3, req3)
+	if rr3.Code != http.StatusBadRequest {
+		t.Errorf("expected 400 for traversal job ID, got %d", rr3.Code)
+	}
+}
+
+func TestSSERingBufferChronologicalAndOverrun(t *testing.T) {
+	broker := NewEventBroker(5)
+
+	// Broadcast 10 events (IDs 1 through 10)
+	for i := 1; i <= 10; i++ {
+		broker.Broadcast("job-1", EventProgress, map[string]int{"step": i})
+	}
+
+	// Ring buffer has capacity 5, so IDs 1..5 were overwritten. Buffer contains IDs 6..10.
+	// Client asks for events since ID 2: this is a buffer overrun (missed 3, 4, 5).
+	events := broker.EventsSince(2, "job-1")
+	if len(events) == 0 {
+		t.Fatalf("expected replayed events, got 0")
+	}
+
+	// First event should be EventSyncRequired
+	if events[0].Type != EventSyncRequired {
+		t.Errorf("expected first event to be %s, got %s", EventSyncRequired, events[0].Type)
+	}
+
+	// Remaining events must be strictly ascending by ID
+	for i := 2; i < len(events); i++ {
+		if events[i].ID <= events[i-1].ID {
+			t.Errorf("events out of order: events[%d].ID=%d <= events[%d].ID=%d",
+				i, events[i].ID, i-1, events[i-1].ID)
+		}
+	}
+}
+
+func TestJobManagerAtomicSaveAndQueueSaturation(t *testing.T) {
+	tmpDir := t.TempDir()
+	storagePath := filepath.Join(tmpDir, "jobs.json")
+	broker := NewEventBroker(100)
+
+	// Test with 0 workers initially to fill queue
+	jm, err := NewJobManager(storagePath, 1, broker)
+	if err != nil {
+		t.Fatalf("NewJobManager: %v", err)
+	}
+	defer jm.Close()
+
+	// Fill queue to capacity (100)
+	var lastErr error
+	for i := 0; i < 110; i++ {
+		_, err := jm.Submit("tool_run", "ws-1", "target.com", nil, func(ctx context.Context, job *Job, update func(int, string, string, int), emitLog func(string)) error {
+			time.Sleep(50 * time.Millisecond)
+			return nil
+		})
+		if err != nil {
+			lastErr = err
+			break
+		}
+	}
+
+	// Should handle queue saturation cleanly
+	if lastErr == nil {
+		t.Log("Note: queue handled submissions within worker throughput")
+	} else if !strings.Contains(lastErr.Error(), "queue is full") {
+		t.Errorf("unexpected submission error: %v", lastErr)
+	}
+
+	// Verify storage file exists and contains valid JSON
+	data, err := os.ReadFile(storagePath)
+	if err != nil {
+		t.Fatalf("read jobs.json: %v", err)
+	}
+	var loaded []*Job
+	if err := json.Unmarshal(data, &loaded); err != nil {
+		t.Fatalf("jobs.json unmarshal: %v", err)
+	}
+	if len(loaded) == 0 {
+		t.Error("expected stored jobs in jobs.json")
+	}
+}
+
+func TestRCERESTAPI(t *testing.T) {
+	baseDir := t.TempDir()
+	ws, runID := createTestWorkspaceWithArtifacts(t, baseDir)
+
+	// 1. Write mock endpoints.json
+	eps := []*endpoints.Endpoint{
+		{
+			Origin:           "https://example.com",
+			URL:              "https://example.com/api/v1/diag/ping",
+			NormalizedRoute:  "/api/v1/diag/ping",
+			Methods:          []string{"POST"},
+			QueryParams:      []string{"target"},
+			BodyFields:       []string{"host", "args"},
+			TechFingerprints: []string{"Linux", "Spring Framework 5.3.17"},
+		},
+		{
+			Origin:           "https://example.com",
+			URL:              "https://example.com/render/template",
+			NormalizedRoute:  "/render/template",
+			Methods:          []string{"GET"},
+			QueryParams:      []string{"template"},
+			TechFingerprints: []string{"Jinja2"},
+		},
+	}
+	_ = ws.SaveArtifact(workspace.EndpointsFile, eps)
+
+	s, err := New(Config{RunsDir: baseDir})
+	if err != nil {
+		t.Fatalf("New server: %v", err)
+	}
+	defer s.jobs.Close()
+	handler := s.Routes()
+
+	// Test 1: Discover RCE attack surfaces
+	reqDisc := httptest.NewRequest(http.MethodPost, "/api/runs/"+runID+"/rce/discover", nil)
+	reqDisc.Header.Set("X-Requested-With", "Scoutr")
+	reqDisc.Header.Set("X-Scoutr-Token", s.apiToken)
+	rrDisc := httptest.NewRecorder()
+	handler.ServeHTTP(rrDisc, reqDisc)
+
+	if rrDisc.Code != http.StatusAccepted {
+		t.Fatalf("POST rce/discover status = %d, want 202 (body: %s)", rrDisc.Code, rrDisc.Body.String())
+	}
+
+	// Wait briefly for background discover job to complete
+	time.Sleep(300 * time.Millisecond)
+
+	// Test 2: List candidates
+	reqList := httptest.NewRequest(http.MethodGet, "/api/runs/"+runID+"/rce/candidates", nil)
+	rrList := httptest.NewRecorder()
+	handler.ServeHTTP(rrList, reqList)
+
+	if rrList.Code != http.StatusOK {
+		t.Fatalf("GET rce/candidates status = %d, want 200", rrList.Code)
+	}
+
+	var candsResp struct {
+		Total      int                 `json:"total"`
+		Candidates []*rce.RCECandidate `json:"candidates"`
+	}
+	if err := json.Unmarshal(rrList.Body.Bytes(), &candsResp); err != nil {
+		t.Fatalf("decode candidates response: %v", err)
+	}
+
+	if candsResp.Total == 0 || len(candsResp.Candidates) == 0 {
+		t.Fatalf("expected discovered candidates, got %d", candsResp.Total)
+	}
+	cid := candsResp.Candidates[0].ID
+
+	// Test 3: Get single candidate
+	reqGet := httptest.NewRequest(http.MethodGet, "/api/runs/"+runID+"/rce/candidates/"+cid, nil)
+	rrGet := httptest.NewRecorder()
+	handler.ServeHTTP(rrGet, reqGet)
+
+	if rrGet.Code != http.StatusOK {
+		t.Fatalf("GET rce/candidates/{cid} status = %d, want 200", rrGet.Code)
+	}
+	var singleCand rce.RCECandidate
+	_ = json.Unmarshal(rrGet.Body.Bytes(), &singleCand)
+	if singleCand.ID != cid {
+		t.Errorf("candidate ID mismatch: got %s, want %s", singleCand.ID, cid)
+	}
+
+	// Test 4: Update candidate status and notes
+	updateBody := `{"status": "needs_manual_review", "notes": "Requires authorized security review"}`
+	reqUp := httptest.NewRequest(http.MethodPut, "/api/runs/"+runID+"/rce/candidates/"+cid, strings.NewReader(updateBody))
+	reqUp.Header.Set("X-Requested-With", "Scoutr")
+	reqUp.Header.Set("X-Scoutr-Token", s.apiToken)
+	rrUp := httptest.NewRecorder()
+	handler.ServeHTTP(rrUp, reqUp)
+
+	if rrUp.Code != http.StatusOK {
+		t.Fatalf("PUT rce/candidates/{cid} status = %d, want 200", rrUp.Code)
+	}
+
+	// Test 5: Get Overview
+	reqOver := httptest.NewRequest(http.MethodGet, "/api/runs/"+runID+"/rce/overview", nil)
+	rrOver := httptest.NewRecorder()
+	handler.ServeHTTP(rrOver, reqOver)
+
+	if rrOver.Code != http.StatusOK {
+		t.Fatalf("GET rce/overview status = %d, want 200", rrOver.Code)
+	}
+	var overview rce.RCEOverview
+	_ = json.Unmarshal(rrOver.Body.Bytes(), &overview)
+	if overview.TotalCandidates == 0 {
+		t.Errorf("expected overview.TotalCandidates > 0, got 0")
+	}
+
+	// Test 6: Get Advisories
+	reqAdv := httptest.NewRequest(http.MethodGet, "/api/runs/"+runID+"/rce/advisories", nil)
+	rrAdv := httptest.NewRecorder()
+	handler.ServeHTTP(rrAdv, reqAdv)
+
+	if rrAdv.Code != http.StatusOK {
+		t.Fatalf("GET rce/advisories status = %d, want 200", rrAdv.Code)
+	}
+
+	// Test 7: Validate Candidate (passive profile)
+	valPayload := fmt.Sprintf(`{"candidate_id": "%s", "profile": "passive"}`, cid)
+	reqVal := httptest.NewRequest(http.MethodPost, "/api/runs/"+runID+"/rce/validate", strings.NewReader(valPayload))
+	reqVal.Header.Set("X-Requested-With", "Scoutr")
+	reqVal.Header.Set("X-Scoutr-Token", s.apiToken)
+	rrVal := httptest.NewRecorder()
+	handler.ServeHTTP(rrVal, reqVal)
+
+	if rrVal.Code != http.StatusAccepted {
+		t.Fatalf("POST rce/validate status = %d, want 202", rrVal.Code)
+	}
+
+	// Test 8: Get Report
+	reqRep := httptest.NewRequest(http.MethodGet, "/api/runs/"+runID+"/rce/report", nil)
+	rrRep := httptest.NewRecorder()
+	handler.ServeHTTP(rrRep, reqRep)
+
+	if rrRep.Code != http.StatusOK {
+		t.Fatalf("GET rce/report status = %d, want 200", rrRep.Code)
+	}
+	var reportResp struct {
+		Markdown string `json:"markdown"`
+	}
+	_ = json.Unmarshal(rrRep.Body.Bytes(), &reportResp)
+	if !strings.Contains(reportResp.Markdown, "Scoutr RCE Research and Attack Surface Report") {
+		t.Errorf("expected report title in report response markdown")
+	}
+	time.Sleep(150 * time.Millisecond)
 }

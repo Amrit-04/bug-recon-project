@@ -237,9 +237,12 @@ func RunPDHTTPX(ctx context.Context, runner CommandRunner, s *scope.Scope, targe
 		return nil, nil
 	}
 
-	args := []string{"-silent", "-json", "-no-color"}
+	args := []string{"-silent", "-json", "-no-color", "-no-fallback"}
 	if rateLimit > 0 {
 		args = append(args, "-rl", fmt.Sprintf("%d", rateLimit))
+	}
+	if s != nil && len(s.OutOfScope) > 0 {
+		args = append(args, "-eh", strings.Join(s.OutOfScope, ","))
 	}
 
 	stdout, _, err := SafeToolExecution(ctx, runner, s, "httpx", args, filteredTargets, InputModeStdin, "")
@@ -411,6 +414,10 @@ func RunKatana(ctx context.Context, runner CommandRunner, s *scope.Scope, target
 		"-jsonl",
 		"-d", fmt.Sprintf("%d", depth),
 		"-no-color",
+		"-dr",           // Disable following redirects to avoid leaving target scope
+		"-no-redirects", // Refuse cross-origin redirect following
+		"-duc",          // Disable external update checks
+		"-aff=false",    // Disable automatic form submissions
 	}
 
 	if rateLimit > 0 {
@@ -418,6 +425,20 @@ func RunKatana(ctx context.Context, runner CommandRunner, s *scope.Scope, target
 	}
 
 	cs, cos := BuildScopeRegex(s)
+	if cs == "" && len(filteredTargets) > 0 {
+		// Strict fallback: synthesize crawl scope regex from verified in-scope targets
+		var parts []string
+		for _, t := range filteredTargets {
+			clean := t
+			if u, err := url.Parse(t); err == nil && u.Host != "" {
+				clean = u.Host
+			}
+			parts = append(parts, regexp.QuoteMeta(clean))
+		}
+		if len(parts) > 0 {
+			cs = fmt.Sprintf(`https?://(?:%s)(?::[0-9]+)?(?:/.*)?`, strings.Join(parts, "|"))
+		}
+	}
 	if cs != "" {
 		args = append(args, "-cs", cs)
 	}
@@ -480,10 +501,15 @@ func RunNucleiPosture(ctx context.Context, runner CommandRunner, s *scope.Scope,
 		"-silent",
 		"-jsonl",
 		"-no-interactsh",
+		"-dr",  // Disable following redirects
+		"-duc", // Disable phone-home update check
 		"-c", "5",
 		"-rl", fmt.Sprintf("%d", rateLimit),
 		"-tags", "ssl,tls,tech,headers,misconfig,exposure",
 		"-etags", "fuzz,intrusive,dos,exploit,rce,sqli,xss,lfi,ssrf",
+	}
+	if s != nil && len(s.OutOfScope) > 0 {
+		args = append(args, "-eh", strings.Join(s.OutOfScope, ","))
 	}
 
 	// Pass targets via clean temporary file (-l flag) to ensure Windows command-line length limits are respected

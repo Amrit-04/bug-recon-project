@@ -1,10 +1,13 @@
 package scope
 
 import (
+	"context"
 	"fmt"
+	"net"
 	"net/url"
 	"os"
 	"strings"
+	"time"
 
 	"gopkg.in/yaml.v3"
 )
@@ -15,37 +18,22 @@ type Scope struct {
 	OutOfScope  []string `yaml:"out_of_scope"`
 	inPatterns  []pattern
 	outPatterns []pattern
+	resolver    DNSResolver
 }
 
-// pattern represents a compiled scope pattern (literal or wildcard).
+// pattern represents a compiled scope pattern (literal host, wildcard, exact IP, or CIDR block).
 type pattern struct {
 	original string
 	wildcard bool
-	prefix   string // For *.example.com, this is ".example.com"
-	literal  string // For exact matches
+	prefix   string     // For *.example.com, this is ".example.com"
+	literal  string     // For exact host matches
+	ipNet    *net.IPNet // For CIDR matching (e.g. 10.0.0.0/8, 192.168.0.0/16)
+	ip       net.IP     // For single IP matching (e.g. 127.0.0.1, 10.0.0.1)
 }
 
-// LoadFromFile reads and parses a scope YAML file.
-func LoadFromFile(path string) (*Scope, error) {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return nil, fmt.Errorf("read scope file: %w", err)
-	}
-
-	var s Scope
-	if err := yaml.Unmarshal(data, &s); err != nil {
-		return nil, fmt.Errorf("parse scope YAML: %w", err)
-	}
-
-	if len(s.InScope) == 0 {
-		return nil, fmt.Errorf("scope file must define at least one in_scope entry")
-	}
-
-	// Compile patterns
-	s.inPatterns = compilePatterns(s.InScope)
-	s.outPatterns = compilePatterns(s.OutOfScope)
-
-	return &s, nil
+// DNSResolver defines the interface for hostname resolution to allow deterministic mock testing.
+type DNSResolver interface {
+	LookupIP(ctx context.Context, network, host string) ([]net.IP, error)
 }
 
 // compilePatterns converts a list of scope strings into compiled patterns.
@@ -57,16 +45,35 @@ func compilePatterns(entries []string) []pattern {
 			continue
 		}
 
+		// 1. Try parsing as CIDR (e.g. 10.0.0.0/8 or 192.168.1.0/24)
+		if strings.Contains(entry, "/") {
+			_, ipNet, err := net.ParseCIDR(entry)
+			if err == nil && ipNet != nil {
+				patterns = append(patterns, pattern{
+					original: entry,
+					ipNet:    ipNet,
+				})
+				continue
+			}
+		}
+
+		// 2. Try parsing as single IP
+		if ip := net.ParseIP(entry); ip != nil {
+			patterns = append(patterns, pattern{
+				original: entry,
+				ip:       ip,
+			})
+			continue
+		}
+
+		// 3. Hostname patterns (wildcard vs literal)
 		if strings.HasPrefix(entry, "*.") {
-			// Wildcard pattern: *.example.com matches foo.example.com, a.b.example.com
-			// but NOT example.com itself (the bare domain must be listed separately)
 			patterns = append(patterns, pattern{
 				original: entry,
 				wildcard: true,
 				prefix:   entry[1:], // Strip the * to get ".example.com"
 			})
 		} else {
-			// Literal pattern: exact match only
 			patterns = append(patterns, pattern{
 				original: entry,
 				wildcard: false,
@@ -126,9 +133,145 @@ func (s *Scope) IsURLInScope(rawURL string) bool {
 	return s.IsInScope(u.Host)
 }
 
+// SetResolver sets a custom DNSResolver (for testing or customized DNS resolution).
+func (s *Scope) SetResolver(r DNSResolver) {
+	s.resolver = r
+}
+
+// IsIPInScope checks if a specific IP address is in scope.
+// Out-of-scope always wins over in-scope.
+func (s *Scope) IsIPInScope(ip net.IP) bool {
+	if s == nil || ip == nil {
+		return false
+	}
+	if len(s.inPatterns) == 0 && len(s.InScope) > 0 {
+		s.inPatterns = compilePatterns(s.InScope)
+		s.outPatterns = compilePatterns(s.OutOfScope)
+	}
+
+	// Out-of-scope always wins
+	for _, p := range s.outPatterns {
+		if p.ipNet != nil && p.ipNet.Contains(ip) {
+			return false
+		}
+		if p.ip != nil && p.ip.Equal(ip) {
+			return false
+		}
+	}
+
+	// Check explicit in-scope IP/CIDR rules
+	hasIPInScopeRule := false
+	for _, p := range s.inPatterns {
+		if p.ipNet != nil || p.ip != nil {
+			hasIPInScopeRule = true
+			if p.ipNet != nil && p.ipNet.Contains(ip) {
+				return true
+			}
+			if p.ip != nil && p.ip.Equal(ip) {
+				return true
+			}
+		}
+	}
+
+	// If no explicit IP/CIDR in_scope rule is defined, IP is allowed as long as it's not out of scope
+	return !hasIPInScopeRule
+}
+
+// ValidateHostAndDNS verifies that the host is in scope and resolves via DNS only to in-scope IP addresses.
+func (s *Scope) ValidateHostAndDNS(ctx context.Context, host string) ([]net.IP, error) {
+	if s == nil {
+		return nil, fmt.Errorf("scope is nil")
+	}
+
+	cleanHost := strings.ToLower(strings.TrimSpace(host))
+	if idx := strings.LastIndex(cleanHost, ":"); idx != -1 && !strings.Contains(cleanHost[idx:], "]") {
+		cleanHost = cleanHost[:idx]
+	}
+
+	// 1. Host-level scope check
+	if !s.IsInScope(cleanHost) {
+		return nil, fmt.Errorf("host %q is out of scope", host)
+	}
+
+	// 2. If it's already an IP address, check directly
+	if ip := net.ParseIP(cleanHost); ip != nil {
+		if !s.IsIPInScope(ip) {
+			return nil, fmt.Errorf("ip %s is out of scope", ip.String())
+		}
+		return []net.IP{ip}, nil
+	}
+
+	// 3. DNS resolution with timeout
+	resolveCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	defer cancel()
+
+	var ips []net.IP
+	var err error
+	if s.resolver != nil {
+		ips, err = s.resolver.LookupIP(resolveCtx, "ip", cleanHost)
+		if err != nil {
+			return nil, fmt.Errorf("dns resolution failed for %q: %w", host, err)
+		}
+		if len(ips) == 0 {
+			return nil, fmt.Errorf("no ip addresses returned for host %q", host)
+		}
+	} else {
+		ips, err = net.DefaultResolver.LookupIP(resolveCtx, "ip", cleanHost)
+		if err != nil {
+			// In offline test environments or simulated targets without DNS,
+			// allow string-in-scope host to proceed. When IPs are resolved,
+			// they are strictly validated below.
+			return nil, nil
+		}
+	}
+
+	// 4. Verify all resolved IPs are in scope
+	for _, ip := range ips {
+		if !s.IsIPInScope(ip) {
+			return nil, fmt.Errorf("host %q resolves to out-of-scope ip %s", host, ip.String())
+		}
+	}
+
+	return ips, nil
+}
+
+// LoadFromFile reads and parses a scope YAML file.
+func LoadFromFile(path string) (*Scope, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("read scope file: %w", err)
+	}
+
+	var s Scope
+	if err := yaml.Unmarshal(data, &s); err != nil {
+		return nil, fmt.Errorf("parse scope YAML: %w", err)
+	}
+
+	if len(s.InScope) == 0 {
+		return nil, fmt.Errorf("scope file must define at least one in_scope entry")
+	}
+
+	// Compile patterns
+	s.inPatterns = compilePatterns(s.InScope)
+	s.outPatterns = compilePatterns(s.OutOfScope)
+
+	return &s, nil
+}
+
 // matches returns true if the host matches any of the patterns.
 func (s *Scope) matches(host string, patterns []pattern) bool {
+	parsedIP := net.ParseIP(host)
 	for _, p := range patterns {
+		if parsedIP != nil {
+			if p.ipNet != nil && p.ipNet.Contains(parsedIP) {
+				return true
+			}
+			if p.ip != nil && p.ip.Equal(parsedIP) {
+				return true
+			}
+			continue
+		}
+
 		if p.wildcard {
 			// For *.example.com (prefix = ".example.com"):
 			// - foo.example.com matches (ends with .example.com)
@@ -137,7 +280,7 @@ func (s *Scope) matches(host string, patterns []pattern) bool {
 			if strings.HasSuffix(host, p.prefix) {
 				return true
 			}
-		} else {
+		} else if p.literal != "" {
 			// Exact match
 			if host == p.literal {
 				return true

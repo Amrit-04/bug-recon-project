@@ -72,6 +72,160 @@ const mockProviders = [
   }
 ];
 
+const mockEndpoints = {
+  endpoints: [
+    {
+      url: 'https://api.example.com/api/v1/users/123',
+      origin: 'https://api.example.com',
+      methods: ['GET'],
+      normalized_route: '/api/v1/users/{id}',
+      tech_fingerprints: ['express'],
+      body_fields: [],
+      query_params: ['fields'],
+      classifications: [{ category: 'identity_access', priority: 1 }],
+      auth_observations: [{ status: 'authenticated', principal_label: 'user_a' }],
+      discovery_sources: ['crawler']
+    }
+  ],
+  total: 1
+};
+
+const mockProfiles = [
+  {
+    principal_label: 'user_a',
+    tenant_label: 'tenant_1',
+    role: 'admin',
+    instance_label: 'us-east',
+    identity_status: 'verified',
+    verified_id: 'usr_001',
+    identity_endpoint: 'https://api.example.com/me'
+  },
+  {
+    principal_label: 'user_b',
+    tenant_label: 'tenant_2',
+    role: 'member',
+    instance_label: 'us-east',
+    identity_status: 'unverified',
+    identity_endpoint: 'https://api.example.com/me'
+  }
+];
+
+const mockCandidates = {
+  candidates: [
+    {
+      id: 'cand-1',
+      location: 'path',
+      param_name: 'id',
+      object_id: '123',
+      route_template: '/api/v1/users/{id}',
+      endpoint_url: 'https://api.example.com/api/v1/users/123',
+      method: 'GET',
+      owner_principal: 'user_a',
+      owner_tenant: 'tenant_1',
+      access_policy: 'private'
+    }
+  ],
+  total: 1
+};
+
+const mockComparisons = [
+  {
+    id: 'cmp-1',
+    candidate: {
+      route_template: '/api/v1/users/{id}',
+      object_id: '123'
+    },
+    request_url: 'https://api.example.com/api/v1/users/123',
+    owner_status: 200,
+    tester_status: 200,
+    anon_status: 401,
+    boundary: 'cross_tenant',
+    status: 'Confirmed',
+    similarity_score: 0.98,
+    disclosed_sensitive_fields: ['email', 'ssn'],
+    reproduction_curl: 'curl -H "Authorization: Bearer <redacted>" https://api.example.com/api/v1/users/123'
+  }
+];
+
+const mockRCECandidates = {
+  candidates: [
+    {
+      id: 'rce-ssti-001',
+      category: 'ssti',
+      route: '/render/template',
+      target_url: 'https://api.example.com/render/template',
+      method: 'POST',
+      parameters: ['template', 'engine'],
+      confidence: 'high',
+      hypothesis: 'User-controlled template parameter rendered by server-side engine',
+      suspected_sink: 'Template engine rendering context (Jinja2 / FreeMarker)',
+      priority_score: 85,
+      score_breakdown: {
+        base_risk: 40,
+        input_exposure: 20,
+        auth_modifier: 0,
+        tech_cve_modifier: 15,
+        chain_modifier: 10,
+        explanations: ['High base risk for template injection', 'Unauthenticated public parameter']
+      },
+      status: 'candidate',
+      matched_advisories: [
+        {
+          cve_id: 'CVE-2022-22965',
+          product: 'Spring Framework',
+          tier: 'ComponentReachable'
+        }
+      ],
+      last_attempt: {
+        id: 'val-001',
+        candidate_id: 'rce-ssti-001',
+        profile: 'safe_active',
+        status: 'Verified',
+        verified: true,
+        marker_sent: '${7*7}',
+        marker_reflected: false,
+        negative_control_sent: '${7*8}',
+        negative_control_verified: true,
+        reproduction_curl: 'curl -s -X POST -d "template=${7*7}" https://api.example.com/render/template',
+        notes: 'Math expression 7*7 evaluated to 49',
+        timestamp: new Date().toISOString()
+      }
+    }
+  ],
+  total: 1
+};
+
+const mockRCEOverview = {
+  run_id: 'example.com-20261028-101500',
+  total_candidates: 1,
+  by_category: { ssti: 1 },
+  by_confidence: { high: 1 },
+  by_status: { candidate: 1 },
+  high_priority_count: 1,
+  active_chains_count: 0,
+  advisories_matched: 1,
+  verified_rce_count: 0,
+  suppressed_count: 0,
+  needs_review_count: 0
+};
+
+const mockRCEAdvisories = {
+  advisories: [
+    {
+      cve_id: 'CVE-2022-22965',
+      name: 'Spring4Shell RCE',
+      product: 'Spring Framework',
+      vulnerable_range: '>= 5.3.0, < 5.3.18',
+      cvss: 9.8,
+      severity: 'critical',
+      description: 'Remote code execution in Spring Framework via DataBinder parameter binding',
+      affected_routes: ['/render/template'],
+      reachability_notes: 'Endpoint is active and handles user parameters'
+    }
+  ],
+  total: 1
+};
+
 describe('App Dashboard & Local LLM Integration', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -148,6 +302,76 @@ describe('App Dashboard & Local LLM Integration', () => {
         return Promise.resolve({
           ok: true,
           json: () => Promise.resolve({ ok: true, endpoint: 'http://127.0.0.1:1234/v1', models: ['llama-3.2-3b-instruct'] })
+        });
+      }
+      if (urlStr.endsWith('/endpoints')) {
+        return Promise.resolve({ ok: true, json: () => Promise.resolve(mockEndpoints) });
+      }
+      if (urlStr.endsWith('/auth/profiles') && options?.method === 'POST') {
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({ status: 'saved' }) });
+      }
+      if (urlStr.endsWith('/auth/profiles')) {
+        return Promise.resolve({ ok: true, json: () => Promise.resolve(mockProfiles) });
+      }
+      if (urlStr.endsWith('/auth/profiles/verify') && options?.method === 'POST') {
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({ verified: true, identity_label: 'user_a', status: 200 }) });
+      }
+      if (urlStr.endsWith('/idor/candidates') && options?.method === 'POST') {
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({ job_id: 'job-1', status: 'queued' }) });
+      }
+      if (urlStr.endsWith('/idor/candidates')) {
+        return Promise.resolve({ ok: true, json: () => Promise.resolve(mockCandidates) });
+      }
+      if (urlStr.includes('/idor/candidates/') && options?.method === 'PUT') {
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({ status: 'updated' }) });
+      }
+      if (urlStr.endsWith('/idor/compare') && options?.method === 'POST') {
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({ job_id: 'job-2', status: 'queued' }) });
+      }
+      if (urlStr.endsWith('/idor/comparisons')) {
+        return Promise.resolve({ ok: true, json: () => Promise.resolve(mockComparisons) });
+      }
+      if (urlStr.includes('/rce/candidates/') && options?.method === 'PUT') {
+        return Promise.resolve({ ok: true, json: () => Promise.resolve(mockRCECandidates.candidates[0]) });
+      }
+      if (urlStr.endsWith('/rce/candidates')) {
+        return Promise.resolve({ ok: true, json: () => Promise.resolve(mockRCECandidates) });
+      }
+      if (urlStr.endsWith('/rce/overview')) {
+        return Promise.resolve({ ok: true, json: () => Promise.resolve(mockRCEOverview) });
+      }
+      if (urlStr.endsWith('/rce/advisories')) {
+        return Promise.resolve({ ok: true, json: () => Promise.resolve(mockRCEAdvisories) });
+      }
+      if (urlStr.endsWith('/rce/discover') && options?.method === 'POST') {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ status: 'completed', candidates_count: 1, chains_count: 0, endpoints_analyzed: 5 })
+        });
+      }
+      if (urlStr.endsWith('/rce/validate') && options?.method === 'POST') {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({
+            id: 'val-001',
+            candidate_id: 'rce-ssti-001',
+            profile: 'safe_active',
+            status: 'Verified',
+            verified: true,
+            marker_sent: '${7*7}',
+            marker_reflected: false,
+            negative_control_sent: '${7*8}',
+            negative_control_verified: true,
+            reproduction_curl: 'curl -s -X POST -d "template=${7*7}" https://api.example.com/render/template',
+            notes: 'Math expression 7*7 evaluated to 49',
+            timestamp: new Date().toISOString()
+          })
+        });
+      }
+      if (urlStr.endsWith('/rce/report')) {
+        return Promise.resolve({
+          ok: true,
+          text: () => Promise.resolve('# Scoutr RCE Research Report\n\nTotal candidates: 1\n')
         });
       }
 
@@ -297,5 +521,212 @@ describe('App Dashboard & Local LLM Integration', () => {
     await waitFor(() => {
       expect(screen.getByText(/Tool executed successfully/i)).toBeInTheDocument();
     });
+  });
+
+  it('navigates to Endpoints Explorer, filters routes, and inspects details drawer', async () => {
+    render(<App />);
+
+    // Click Endpoints Explorer tab
+    const epBtn = await screen.findByRole('button', { name: /Endpoints Explorer/i });
+    fireEvent.click(epBtn);
+
+    // Verify header and table items
+    expect(await screen.findByText('Endpoint Intelligence Explorer')).toBeInTheDocument();
+    expect(screen.getByText('/api/v1/users/{id}')).toBeInTheDocument();
+
+    // Click on endpoint route to open detail drawer modal
+    const routeLink = screen.getByRole('button', { name: '/api/v1/users/{id}' });
+    fireEvent.click(routeLink);
+
+    // Verify modal drawer opens
+    expect(await screen.findByText('Endpoint Intelligence Details')).toBeInTheDocument();
+    expect(screen.getByText('Queue for IDOR Differential Testing')).toBeInTheDocument();
+  });
+
+  it('navigates to IDOR Center, inspects profiles, toggles secret visibility and saves profile', async () => {
+    render(<App />);
+
+    // Click IDOR Center tab
+    const idorBtn = await screen.findByRole('button', { name: /IDOR Center/i });
+    fireEvent.click(idorBtn);
+
+    // Verify header banner
+    expect(await screen.findByText('Authenticated IDOR & Cross-Account Engine')).toBeInTheDocument();
+
+    // Verify Profile A & Profile B cards exist
+    expect(screen.getByText(/Profile A \(Resource Owner \/ Victim\)/i)).toBeInTheDocument();
+    expect(screen.getByText(/Profile B \(Accessor \/ Attacker \/ Tester\)/i)).toBeInTheDocument();
+
+    // Test secret visibility toggle
+    const toggleSecretBtn = screen.getAllByText('Show Secret')[0];
+    fireEvent.click(toggleSecretBtn);
+    expect(screen.getByText('Hide Secret')).toBeInTheDocument();
+
+    // Save profile A
+    const saveBtn = screen.getByRole('button', { name: /Save Profile A/i });
+    fireEvent.click(saveBtn);
+
+    // Verify success banner appears
+    await waitFor(() => {
+      expect(screen.getByText(/Saved credentials for user_a/i)).toBeInTheDocument();
+    });
+  });
+
+  it('navigates to IDOR Candidate Object References and modifies access policy', async () => {
+    render(<App />);
+
+    const idorBtn = await screen.findByRole('button', { name: /IDOR Center/i });
+    fireEvent.click(idorBtn);
+
+    // Switch to candidates sub-pill
+    const candPill = await screen.findByRole('button', { name: /3\. Candidate Object References/i });
+    fireEvent.click(candPill);
+
+    // Verify candidate row
+    expect(await screen.findByText('123')).toBeInTheDocument();
+    expect(screen.getByText('/api/v1/users/{id}')).toBeInTheDocument();
+
+    // Change policy select
+    const select = screen.getByDisplayValue('private (owner only)');
+    fireEvent.change(select, { target: { value: 'tenant_shared' } });
+
+    // Verify PUT request dispatched to backend policy API
+    await waitFor(() => {
+      expect(global.fetch).toHaveBeenCalledWith(
+        expect.stringContaining('/idor/candidates/cand-1/policy'),
+        expect.objectContaining({
+          method: 'PUT',
+          body: JSON.stringify({ access_policy: 'tenant_shared' })
+        })
+      );
+    });
+  });
+
+  it('navigates to IDOR Differential Testing Matrix and views evidence bundle modal', async () => {
+    render(<App />);
+
+    const idorBtn = await screen.findByRole('button', { name: /IDOR Center/i });
+    fireEvent.click(idorBtn);
+
+    // Switch to matrix sub-pill
+    const matrixPill = await screen.findByRole('button', { name: /4\. Differential Testing Matrix/i });
+    fireEvent.click(matrixPill);
+
+    // Verify matrix row
+    expect(await screen.findByText('1 Confirmed IDOR')).toBeInTheDocument();
+    expect(screen.getByText('200 OK')).toBeInTheDocument();
+
+    // Click "View Evidence" button
+    const evidenceBtn = screen.getByRole('button', { name: /View Evidence/i });
+    fireEvent.click(evidenceBtn);
+
+    // Verify evidence modal opens
+    expect(await screen.findByText('IDOR Differential Evidence Bundle')).toBeInTheDocument();
+    expect(screen.getByText('Disclosed Sensitive Data Fields')).toBeInTheDocument();
+  });
+
+  it('navigates to RCE Research Center, inspects overview and category breakdown', async () => {
+    render(<App />);
+
+    const rceBtn = await screen.findByRole('button', { name: /RCE Research Center/i });
+    fireEvent.click(rceBtn);
+
+    // Verify header and sub-tabs
+    expect(await screen.findByRole('heading', { name: /RCE Research Center/i })).toBeInTheDocument();
+    expect(screen.getByText('Execution Sink Classification')).toBeInTheDocument();
+    expect(screen.getByText('Total Attack Surfaces')).toBeInTheDocument();
+    expect(screen.getAllByText('Template Injection (SSTI)')[0]).toBeInTheDocument();
+    expect(screen.getByText('File Processing')).toBeInTheDocument();
+    expect(screen.getByText('Command Injection')).toBeInTheDocument();
+  });
+
+  it('filters candidates in Attack Surface Explorer and inspects candidate queue details', async () => {
+    render(<App />);
+
+    const rceBtn = await screen.findByRole('button', { name: /RCE Research Center/i });
+    fireEvent.click(rceBtn);
+
+    // Switch to Attack Surface Explorer sub-tab
+    const explorerTab = await screen.findByRole('button', { name: /2\. Attack Surface Explorer/i });
+    fireEvent.click(explorerTab);
+
+    // Verify table row
+    expect(await screen.findByText(/POST \/render\/template/)).toBeInTheDocument();
+
+    // Switch to Candidate Prioritization Queue sub-tab
+    const queueTab = await screen.findByRole('button', { name: /3\. Candidate Prioritization Queue/i });
+    fireEvent.click(queueTab);
+
+    // Verify candidate card and score breakdown
+    expect(await screen.findByText(/85/)).toBeInTheDocument();
+    expect(screen.getByText('Deterministic Score Breakdown')).toBeInTheDocument();
+    expect(screen.getByText(/User-controlled template parameter rendered by server-side engine/i)).toBeInTheDocument();
+  });
+
+  it('opens RCE Validation modal, selects safe active profile and executes validation', async () => {
+    render(<App />);
+
+    const rceBtn = await screen.findByRole('button', { name: /RCE Research Center/i });
+    fireEvent.click(rceBtn);
+
+    // Switch to Queue
+    const queueTab = await screen.findByRole('button', { name: /3\. Candidate Prioritization Queue/i });
+    fireEvent.click(queueTab);
+
+    // Open Validation modal
+    const valBtn = await screen.findByRole('button', { name: /Launch 3-Profile Validation Gate/i });
+    fireEvent.click(valBtn);
+
+    // Verify modal contents
+    expect(await screen.findByText('Execute 3-Profile RCE Validation')).toBeInTheDocument();
+    expect(screen.getByText(/Profile 2: Safe Active Probing \(Recommended\)/i)).toBeInTheDocument();
+
+    // Submit validation
+    const submitBtn = screen.getByRole('button', { name: /Execute Validation/i });
+    fireEvent.click(submitBtn);
+
+    await waitFor(() => {
+      expect(global.fetch).toHaveBeenCalledWith(
+        expect.stringContaining('/rce/validate'),
+        expect.objectContaining({
+          method: 'POST'
+        })
+      );
+    });
+  });
+
+  it('inspects Advisory Intelligence reachability progression tier', async () => {
+    render(<App />);
+
+    const rceBtn = await screen.findByRole('button', { name: /RCE Research Center/i });
+    fireEvent.click(rceBtn);
+
+    // Switch to Advisories tab
+    const advTab = await screen.findByRole('button', { name: /4\. Advisory Intelligence \(CVEs\)/i });
+    fireEvent.click(advTab);
+
+    // Verify advisory details
+    expect(await screen.findByText('CVE-2022-22965')).toBeInTheDocument();
+    expect(screen.getByText('Spring4Shell RCE')).toBeInTheDocument();
+    expect(screen.getByText('Component Reachable')).toBeInTheDocument();
+  });
+
+  it('opens RCE Evidence Bundle modal and copies reproduction curl command', async () => {
+    render(<App />);
+
+    const rceBtn = await screen.findByRole('button', { name: /RCE Research Center/i });
+    fireEvent.click(rceBtn);
+
+    // Switch to Queue
+    const queueTab = await screen.findByRole('button', { name: /3\. Candidate Prioritization Queue/i });
+    fireEvent.click(queueTab);
+
+    // Click View Evidence Bundle
+    const evBtn = await screen.findByRole('button', { name: /View Evidence Bundle/i });
+    fireEvent.click(evBtn);
+
+    // Verify modal
+    expect(await screen.findByText('RCE Evidence Bundle & Verification Audit')).toBeInTheDocument();
+    expect(screen.getByText('Reproducible Curl Command')).toBeInTheDocument();
   });
 });

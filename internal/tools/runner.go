@@ -26,6 +26,7 @@ func NewExecRunner() *ExecRunner {
 // Run executes the specified binary with arguments, feeding stdin and capturing stdout/stderr.
 func (e *ExecRunner) Run(ctx context.Context, bin string, args []string, stdin io.Reader) ([]byte, []byte, error) {
 	cmd := exec.CommandContext(ctx, bin, args...)
+	configureCommandCancellation(cmd)
 	if stdin != nil {
 		cmd.Stdin = stdin
 	}

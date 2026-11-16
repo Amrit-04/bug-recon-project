@@ -1,6 +1,9 @@
 package scope
 
 import (
+	"context"
+	"fmt"
+	"net"
 	"os"
 	"path/filepath"
 	"testing"
@@ -145,5 +148,93 @@ func TestWildcardPrecedence(t *testing.T) {
 	}
 	if !s.IsInScope("allowed.example.com") {
 		t.Error("other wildcards should still match")
+	}
+}
+
+type mockDNSResolver struct {
+	records map[string][]string // host -> IP strings
+}
+
+func (m *mockDNSResolver) LookupIP(ctx context.Context, network, host string) ([]net.IP, error) {
+	if ips, ok := m.records[host]; ok {
+		var out []net.IP
+		for _, ipStr := range ips {
+			out = append(out, net.ParseIP(ipStr))
+		}
+		return out, nil
+	}
+	return nil, fmt.Errorf("no such host: %s", host)
+}
+
+func TestIPAndCIDRScope(t *testing.T) {
+	s := New(
+		[]string{"*.example.com", "192.168.1.0/24", "93.184.216.34"},
+		[]string{"192.168.1.100", "10.0.0.0/8", "127.0.0.1"},
+	)
+
+	// In-scope IP tests
+	if !s.IsInScope("192.168.1.50") {
+		t.Errorf("expected 192.168.1.50 to be in scope")
+	}
+	if !s.IsInScope("93.184.216.34") {
+		t.Errorf("expected 93.184.216.34 to be in scope")
+	}
+
+	// Out-of-scope IP tests
+	if s.IsInScope("192.168.1.100") {
+		t.Errorf("expected excluded 192.168.1.100 to be out of scope")
+	}
+	if s.IsInScope("10.5.5.5") {
+		t.Errorf("expected 10.5.5.5 (10.0.0.0/8) to be out of scope")
+	}
+	if s.IsInScope("127.0.0.1") {
+		t.Errorf("expected 127.0.0.1 to be out of scope")
+	}
+}
+
+func TestValidateHostAndDNS(t *testing.T) {
+	s := New(
+		[]string{"*.example.com", "example.com"},
+		[]string{"10.0.0.0/8", "192.168.0.0/16", "127.0.0.1"},
+	)
+	mock := &mockDNSResolver{
+		records: map[string][]string{
+			"safe.example.com":     {"93.184.216.34"},
+			"internal.example.com": {"10.0.0.5"},
+			"loopback.example.com": {"127.0.0.1"},
+			"multi.example.com":    {"93.184.216.34", "192.168.1.5"},
+		},
+	}
+	s.SetResolver(mock)
+	ctx := context.Background()
+
+	// Safe host: in scope and resolves to public IP
+	ips, err := s.ValidateHostAndDNS(ctx, "safe.example.com")
+	if err != nil || len(ips) == 0 {
+		t.Fatalf("expected safe host to pass DNS validation, got: %v", err)
+	}
+
+	// Hostname matches in_scope, but resolves to out_of_scope 10.0.0.5
+	_, err = s.ValidateHostAndDNS(ctx, "internal.example.com")
+	if err == nil {
+		t.Errorf("expected error when host resolves to out-of-scope IP 10.0.0.5")
+	}
+
+	// Hostname resolves to 127.0.0.1
+	_, err = s.ValidateHostAndDNS(ctx, "loopback.example.com")
+	if err == nil {
+		t.Errorf("expected error when host resolves to out-of-scope IP 127.0.0.1")
+	}
+
+	// Multi-A record where one IP is out-of-scope
+	_, err = s.ValidateHostAndDNS(ctx, "multi.example.com")
+	if err == nil {
+		t.Errorf("expected error when at least one resolved IP is out-of-scope")
+	}
+
+	// Unresolvable host
+	_, err = s.ValidateHostAndDNS(ctx, "unknown.example.com")
+	if err == nil {
+		t.Errorf("expected error for unresolvable host")
 	}
 }

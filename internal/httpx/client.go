@@ -47,12 +47,17 @@ func New(cfg Config) *Client {
 
 	rateLimiter := NewRateLimiter(cfg.GlobalRate, cfg.PerHostRate)
 
+	maxBodySize := cfg.MaxBodySize
+	if maxBodySize <= 0 {
+		maxBodySize = 1048576 // 1 MB default
+	}
+
 	// Wrap the transport with scope enforcement and rate limiting
 	scopedTransport := &ScopedTransport{
 		base:        transport,
 		scope:       cfg.Scope,
 		rateLimiter: rateLimiter,
-		maxBodySize: cfg.MaxBodySize,
+		maxBodySize: maxBodySize,
 		dryRun:      cfg.DryRun,
 		userAgent:   cfg.UserAgent,
 		headers:     cfg.CustomHeaders,

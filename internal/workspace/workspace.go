@@ -30,9 +30,13 @@ const (
 	FuzzFile  = "fuzz.json"
 
 	// Specialized Research & Intelligence artifacts (Endpoints, IDOR, RCE)
-	EndpointsFile      = "endpoints.json"
-	IDORCandidatesFile = "idor_candidates.json"
-	RCECandidatesFile  = "rce_candidates.json"
+	EndpointsFile       = "endpoints.json"
+	IDORObjectsFile     = "idor_objects.json"
+	IDORCandidatesFile  = "idor_candidates.json"
+	IDORComparisonsFile = "idor_comparisons.json"
+	RCECandidatesFile   = "rce_candidates.json"
+	RCEAdvisoriesFile   = "rce_advisories.json"
+	RCEReportFile       = "rce_report.md"
 
 	// Tier 2 artifacts. triage.json NEVER feeds the report directly: it only
 	// influences ordering, while validated_findings.json stays the source of truth.

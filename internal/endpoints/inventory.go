@@ -25,6 +25,7 @@ func NewInventory() *Inventory {
 }
 
 // AddOrMerge inserts a new endpoint or merges attributes into an existing matching route.
+// Endpoint identity preserves Origin (scheme, host, port), HTTP method, and normalized route.
 func (inv *Inventory) AddOrMerge(ep *Endpoint) {
 	if ep == nil || ep.NormalizedRoute == "" {
 		return
@@ -38,23 +39,36 @@ func (inv *Inventory) AddOrMerge(ep *Endpoint) {
 		ep.Methods = []string{"GET"}
 	}
 
+	// Canonicalize origin
+	if ep.Origin == "" && ep.URL != "" {
+		ep.Origin = ExtractOrigin(ep.URL)
+	}
+
 	for _, method := range ep.Methods {
-		key := ep.Key(method)
+		methodUpper := strings.ToUpper(strings.TrimSpace(method))
+		if methodUpper == "" {
+			methodUpper = "GET"
+		}
+
+		key := ep.Key(methodUpper)
 		existing, found := inv.endpoints[key]
 		if !found {
-			// Deep copy slice fields
 			clone := &Endpoint{
+				Origin:           ep.Origin,
 				URL:              ep.URL,
 				NormalizedRoute:  ep.NormalizedRoute,
-				Methods:          []string{strings.ToUpper(method)},
+				Methods:          []string{methodUpper},
+				ObservedURLs:     uniqueStrings(ep.ObservedURLs),
+				ObservedObjects:  cloneObjects(ep.ObservedObjects),
 				QueryParams:      uniqueStrings(ep.QueryParams),
 				BodyFields:       uniqueStrings(ep.BodyFields),
 				ContentTypes:     uniqueStrings(ep.ContentTypes),
+				AuthObservations: cloneAuthObservations(ep.AuthObservations),
 				AuthRequired:     ep.AuthRequired,
 				AuthType:         ep.AuthType,
 				TechFingerprints: uniqueStrings(ep.TechFingerprints),
 				Sources:          uniqueStrings(ep.Sources),
-				Classifications:  uniqueClassifications(ep.Classifications),
+				Classifications:  cloneClassifications(ep.Classifications),
 				ResponseMetadata: ep.ResponseMetadata,
 				DiscoveredAt:     ep.DiscoveredAt,
 			}
@@ -64,17 +78,45 @@ func (inv *Inventory) AddOrMerge(ep *Endpoint) {
 			if len(clone.Classifications) == 0 {
 				clone.Classifications = ClassifyEndpoint(clone.NormalizedRoute, clone.QueryParams, clone.BodyFields, clone.ContentTypes)
 			}
+			// Maintain URL in observed URLs
+			if clone.URL != "" {
+				clone.AddObservedURL(clone.URL)
+			}
 			inv.endpoints[key] = clone
 		} else {
-			// Merge attributes while preserving provenance
+			// Merge attributes while preserving provenance and object IDs
 			existing.QueryParams = mergeUnique(existing.QueryParams, ep.QueryParams)
 			existing.BodyFields = mergeUnique(existing.BodyFields, ep.BodyFields)
 			existing.ContentTypes = mergeUnique(existing.ContentTypes, ep.ContentTypes)
 			existing.TechFingerprints = mergeUnique(existing.TechFingerprints, ep.TechFingerprints)
 			existing.Sources = mergeUnique(existing.Sources, ep.Sources)
 
+			// Merge observed URLs (concrete URLs)
+			for _, u := range ep.ObservedURLs {
+				existing.AddObservedURL(u)
+			}
+			if ep.URL != "" {
+				existing.AddObservedURL(ep.URL)
+			}
+
+			// Merge observed objects
+			for _, obj := range ep.ObservedObjects {
+				existing.AddObservedObject(obj)
+			}
+
+			// Merge auth observations from different sessions/principals/tenants
+			for _, obs := range ep.AuthObservations {
+				existing.AddAuthObservation(obs)
+			}
+			if ep.AuthRequired {
+				existing.AuthRequired = true
+				if ep.AuthType != "" {
+					existing.AuthType = ep.AuthType
+				}
+			}
+
 			// Merge classifications
-			existing.Classifications = mergeClassifications(existing.Classifications, ep.Classifications)
+			existing.Classifications = mergeClassificationResults(existing.Classifications, ep.Classifications)
 			if len(existing.Classifications) == 0 {
 				existing.Classifications = ClassifyEndpoint(existing.NormalizedRoute, existing.QueryParams, existing.BodyFields, existing.ContentTypes)
 			}
@@ -89,21 +131,17 @@ func (inv *Inventory) AddOrMerge(ep *Endpoint) {
 				if ep.ResponseMetadata.ContentType != "" {
 					existing.ResponseMetadata.ContentType = ep.ResponseMetadata.ContentType
 				}
-			}
-
-			if ep.AuthRequired {
-				existing.AuthRequired = true
-				if ep.AuthType != "" {
-					existing.AuthType = ep.AuthType
+				if ep.ResponseMetadata.ContentLength != 0 {
+					existing.ResponseMetadata.ContentLength = ep.ResponseMetadata.ContentLength
 				}
 			}
 		}
 	}
 }
 
-// AddRawURL normalizes a raw URL string, infers parameter keys, and adds it to inventory.
+// AddRawURL normalizes a raw URL string, infers parameter keys and object IDs, and adds it to inventory.
 func (inv *Inventory) AddRawURL(rawURL, method, source string, tech []string) (*Endpoint, []ObjectIDCandidate) {
-	canonicalURL, route, params, candidates := NormalizeURL(rawURL)
+	origin, canonicalURL, route, params, candidates := NormalizeURL(rawURL)
 	if route == "" {
 		return nil, nil
 	}
@@ -114,9 +152,12 @@ func (inv *Inventory) AddRawURL(rawURL, method, source string, tech []string) (*
 	}
 
 	ep := &Endpoint{
+		Origin:           origin,
 		URL:              canonicalURL,
 		NormalizedRoute:  route,
 		Methods:          []string{method},
+		ObservedURLs:     []string{canonicalURL},
+		ObservedObjects:  candidates,
 		QueryParams:      params,
 		Sources:          []string{source},
 		TechFingerprints: tech,
@@ -127,7 +168,8 @@ func (inv *Inventory) AddRawURL(rawURL, method, source string, tech []string) (*
 	return ep, candidates
 }
 
-// GetAll returns a sorted slice of all endpoints in the inventory.
+// GetAll returns a deterministically sorted slice of all endpoints in the inventory.
+// Sorted by Origin, then NormalizedRoute, then HTTP Method.
 func (inv *Inventory) GetAll() []*Endpoint {
 	inv.mu.RLock()
 	defer inv.mu.RUnlock()
@@ -138,24 +180,27 @@ func (inv *Inventory) GetAll() []*Endpoint {
 	}
 
 	sort.Slice(out, func(i, j int) bool {
-		if out[i].NormalizedRoute == out[j].NormalizedRoute {
-			mI := ""
-			if len(out[i].Methods) > 0 {
-				mI = out[i].Methods[0]
-			}
-			mJ := ""
-			if len(out[j].Methods) > 0 {
-				mJ = out[j].Methods[0]
-			}
-			return mI < mJ
+		if out[i].Origin != out[j].Origin {
+			return out[i].Origin < out[j].Origin
 		}
-		return out[i].NormalizedRoute < out[j].NormalizedRoute
+		if out[i].NormalizedRoute != out[j].NormalizedRoute {
+			return out[i].NormalizedRoute < out[j].NormalizedRoute
+		}
+		mI := ""
+		if len(out[i].Methods) > 0 {
+			mI = out[i].Methods[0]
+		}
+		mJ := ""
+		if len(out[j].Methods) > 0 {
+			mJ = out[j].Methods[0]
+		}
+		return mI < mJ
 	})
 
 	return out
 }
 
-// GetByClassification returns all endpoints carrying the specified function tag.
+// GetByClassification returns all endpoints carrying the specified function category.
 func (inv *Inventory) GetByClassification(c FunctionClassification) []*Endpoint {
 	inv.mu.RLock()
 	defer inv.mu.RUnlock()
@@ -163,7 +208,7 @@ func (inv *Inventory) GetByClassification(c FunctionClassification) []*Endpoint 
 	var matched []*Endpoint
 	for _, ep := range inv.endpoints {
 		for _, tag := range ep.Classifications {
-			if tag == c {
+			if tag.Category == c {
 				matched = append(matched, ep)
 				break
 			}
@@ -254,32 +299,79 @@ func mergeUnique(a, b []string) []string {
 	return out
 }
 
-func uniqueClassifications(in []FunctionClassification) []FunctionClassification {
-	seen := make(map[FunctionClassification]bool)
-	var out []FunctionClassification
-	for _, c := range in {
-		if !seen[c] {
-			seen[c] = true
-			out = append(out, c)
-		}
+func cloneObjects(in []ObjectIDCandidate) []ObjectIDCandidate {
+	if len(in) == 0 {
+		return nil
 	}
+	out := make([]ObjectIDCandidate, len(in))
+	copy(out, in)
 	return out
 }
 
-func mergeClassifications(a, b []FunctionClassification) []FunctionClassification {
-	seen := make(map[FunctionClassification]bool)
-	var out []FunctionClassification
-	for _, c := range a {
-		if !seen[c] {
-			seen[c] = true
-			out = append(out, c)
+func cloneAuthObservations(in []AuthObservation) []AuthObservation {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]AuthObservation, len(in))
+	copy(out, in)
+	return out
+}
+
+func cloneClassifications(in []ClassificationResult) []ClassificationResult {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]ClassificationResult, len(in))
+	copy(out, in)
+	return out
+}
+
+func mergeClassificationResults(a, b []ClassificationResult) []ClassificationResult {
+	resMap := make(map[FunctionClassification]ClassificationResult)
+
+	for _, cr := range a {
+		resMap[cr.Category] = cr
+	}
+
+	for _, cr := range b {
+		existing, found := resMap[cr.Category]
+		if !found {
+			resMap[cr.Category] = cr
+		} else {
+			// Merge signals
+			signals := mergeUnique(existing.EvidenceSignals, cr.EvidenceSignals)
+			// Choose highest confidence
+			conf := existing.Confidence
+			if cr.Confidence == ConfidenceHigh || existing.Confidence == ConfidenceHigh {
+				conf = ConfidenceHigh
+			} else if cr.Confidence == ConfidenceMedium || existing.Confidence == ConfidenceMedium {
+				conf = ConfidenceMedium
+			}
+			// Choose highest priority
+			prio := existing.Priority
+			if cr.Priority > prio {
+				prio = cr.Priority
+			}
+			resMap[cr.Category] = ClassificationResult{
+				Category:        cr.Category,
+				Confidence:      conf,
+				EvidenceSignals: signals,
+				Priority:        prio,
+			}
 		}
 	}
-	for _, c := range b {
-		if !seen[c] {
-			seen[c] = true
-			out = append(out, c)
-		}
+
+	out := make([]ClassificationResult, 0, len(resMap))
+	for _, cr := range resMap {
+		out = append(out, cr)
 	}
+
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Priority != out[j].Priority {
+			return out[i].Priority > out[j].Priority // Higher priority first
+		}
+		return string(out[i].Category) < string(out[j].Category)
+	})
+
 	return out
 }

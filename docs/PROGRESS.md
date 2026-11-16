@@ -658,3 +658,190 @@ The ffuf path wordlist (`internal/tools/wordlist_paths.txt`) is `//go:embed`-ed 
    - `npm --prefix web run build`: 0 errors.
    - `go test ./...`: 100% pass across all 15 packages.
    - `go vet ./...`: 0 warnings or errors.
+
+## Phase 10: Shared Endpoint Intelligence & Authenticated IDOR Research Engine (Phase 3 & 3.1) ✅
+
+### What Was Built
+
+1. **Centralized Endpoint Intelligence Subsystem (`internal/endpoints`)**:
+   - **Origin-Preserving Identity**: Unified endpoint identity key combining scheme, host, port, HTTP method, and normalized route to prevent cross-origin collision.
+   - **Route Normalization & Object ID Tracking**: Identifies and extracts candidate object IDs (`uuid`, `integer`, `hash`, `string`) while preserving route templates and original observed URLs for IDOR research.
+   - **Static Script & API Discovery**: Safe extraction of relative/absolute endpoints from client JavaScript (`fetch`, `axios`, literal paths) and OpenAPI 2.0 / 3.x specifications with strict scope enforcement and size bounds.
+   - **Classification & Prioritization**: Multi-signal classification (auth, admin, file upload, template render, data export, etc.) with confidence tiers (`high`, `medium`, `low`) and research priority rankings without conflating route naming with actual vulnerability findings.
+
+2. **Authentication Profiles & Credential Protection (`internal/auth`)**:
+   - **Dual Independent User Profiles**: Dedicated data structures for researcher-controlled test accounts (`user-a` owner, `user-b` tester) supporting bearer tokens, API keys, and session cookies.
+   - **Structural Isolation Model**: Explicit separation between `PrincipalLabel`, `TenantLabel`, `InstanceLabel`, and `RoleLabel`.
+   - **Credential Isolation & Masquerading Prevention**: `CheckDistinctCredentials()` enforces that user accounts have distinct tokens and cookies, preventing identical credentials from masquerading as different principals.
+   - **Strict Secrets Redaction**: `RedactSecret()`, `RedactHeaders()`, `RedactCookies()`, `RedactURLSecrets()`, and recursive `RedactJSONSecrets()` sanitize credentials, tokens, passwords, and sensitive keys from all logs, artifacts, and reports.
+   - **Hardened HAR Capture Import**: Imports researcher HAR files up to 10MB (`MaxHARSizeBytes`), automatically redacting URL query secrets, request/response payload secrets, and discarding out-of-scope traffic.
+
+3. **Differential Authorization IDOR Research Engine (`internal/idor`)**:
+   - **Contextual Object Inventory (`internal/idor/identifiers.go`, `inventory.go`)**: Extracts contextual object IDs from path segments, query parameters, JSON request payloads, and API responses while filtering generic pagination/status parameters.
+   - **Access Policy & Intra-Tenant Intelligence**: Models `private`, `tenant_shared`, `role_restricted`, and `public` access policies with explicit `AllowedRoles` and `AllowedUsers`. Same-tenant access is validated against expected policies to eliminate false positives on intentionally shared resources.
+   - **Safe Read-Only Differential Testing (`internal/idor/compare.go`)**: Executes safe read-only GET requests comparing owner baseline, tester access, and anonymous access through scope-enforcing `httpx.Client`.
+   - **Field-Level Canonical JSON Disclosure Analysis**: Replaced naive body comparison with field-level proof of unauthorized disclosure: object ID matches, unique test-object markers, and detection of sensitive field disclosure (`DisclosedSensitiveFields`). Jaccard similarity is strictly a supporting metric.
+   - **Web Cache Deception Detection**: Inspects cache response headers (`Cache-Control`, `Age`, `X-Cache`, `CF-Cache-Status`) to distinguish application authorization failures from public cache retention, generating dedicated findings for Web Cache Deception (CWE-524).
+   - **Deterministic Validation Gates (`internal/idor/validator.go`)**: Deterministic classification with distinct statuses:
+     - `IDORStatusCandidate`: Protected or baseline failed.
+     - `IDORStatusNeedsReview`: Public resource or inconclusive.
+     - `IDORStatusAuthorizedShare`: Access permitted under policy.
+     - `IDORStatusSameTenantUnauthorized`: Unauthorized intra-tenant disclosure (Severity: Medium, CWE-639).
+     - `IDORStatusCrossTenant`: Cross-tenant multi-tenancy violation (Severity: High, CWE-639).
+     - `IDORStatusCrossInstance`: Cross-deployment routing isolation violation (Severity: Critical, CWE-639).
+     - `IDORStatusCacheDeception`: Private response leak via public cache (Severity: High, CWE-524).
+
+4. **CLI Integration (`internal/cli/idor.go`)**:
+   - `scoutr idor inventory --from <runDir> [--har <file>] [--owner <label>] [--tenant <label>]`: Builds candidate inventory from endpoint intelligence and optional HAR captures.
+   - `scoutr idor compare --from <runDir> --user-a <owner> --user-b <tester>`: Executes scope-enforcing differential tests and records validated findings to `raw_findings.json`.
+   - `scoutr idor report --from <runDir> [-o <report.md>]`: Compiles comprehensive research markdown report with comparison matrix, boundary evidence, and remediation steps.
+
+5. **Testing & Coverage**:
+   - `internal/auth`: 82.7% statement coverage (session detection, secret masking, credential isolation, cookie deep copy, HAR limits).
+   - `internal/idor`: 86.0% statement coverage (12 mock differential scenarios, cache deception, role restrictions, canonicalization, HAR ingestion).
+   - `internal/endpoints`: 87.3% statement coverage (route normalization, origin collision prevention, JS/OpenAPI extraction, classification).
+   - 100% test pass rate across all project packages (`go test ./... -count=1`).
+   - Clean `gofmt` and zero `go vet ./...` issues.
+
+## Milestone 2: Full Frontend Integration Foundation ✅
+
+### What Was Built
+
+1. **Security & Boundary Hardening Review**:
+   - Verified identity verification fails closed (`internal/auth/profile.go` requires explicit 200 OK and principal identity match).
+   - Verified unknown access policies default to `IDORStatusNeedsReview` and cannot trigger false-positive confirmed findings.
+   - Verified Web Cache Deception detection requires confirmed disclosure of sensitive owner data during cache replay.
+   - Verified credentials isolation: profile secrets stored in dedicated workspace files with 0600 file permissions and masked before API or SSE exposure.
+
+2. **Go Backend Server & REST API Expansion (`internal/server`)**:
+   - **Real-Time Event Broker (`internal/server/events.go`)**: High-throughput thread-safe pub/sub event broker with 500-event ring buffer, non-blocking broadcast dispatch, keepalive heartbeat pings, and `Last-Event-ID` SSE reconnect recovery. Exposed via `GET /api/events`.
+   - **Persistent Job Manager (`internal/server/jobs.go`)**: Multi-job orchestration engine with bounded concurrency semaphore pool, context-based cooperative cancellation, disk persistence to `jobs.json`, and interrupt recovery upon backend restarts. Exposed via `GET /api/jobs` and `POST /api/jobs/{id}/cancel`.
+   - **Endpoint Intelligence Explorer API (`internal/server/endpoints_api.go`)**: Multi-faceted endpoint search and query filtering by host, normalized route, HTTP method, tech fingerprint, auth status, classification category, and priority score (`GET /api/runs/{id}/endpoints`). Supports queueing endpoints directly into IDOR differential testing (`POST /api/runs/{id}/endpoints/queue`).
+   - **Authentication & IDOR APIs (`internal/server/auth_idor_api.go`)**:
+     - `GET /api/runs/{id}/auth/profiles`: Returns sanitized profile summaries with secret masking.
+     - `POST /api/runs/{id}/auth/profiles`: Validates and persists researcher test credentials to 0600 isolated workspace storage.
+     - `POST /api/runs/{id}/auth/profiles/verify`: Executes live identity verification against identity endpoints (`/api/me`) via scope-guarded `httpx.Client`.
+     - `POST /api/runs/{id}/auth/har`: Ingests researcher HAR captures with strict 10MB `MaxBytesReader` enforcement, secret redaction, and scope filtering.
+     - `POST /api/runs/{id}/idor/inventory`: Submits background candidate extraction job to `JobManager`.
+     - `GET /api/runs/{id}/idor/candidates`: Lists extracted object candidates with parameter locations and owner contexts.
+     - `PUT /api/runs/{id}/idor/candidates/{cid}/policy`: Updates candidate access policy (`private`, `tenant_shared`, `explicitly_shared`, `public`, `unknown`).
+     - `POST /api/runs/{id}/idor/compare`: Submits background differential testing job between Profile A and Profile B.
+     - `GET /api/runs/{id}/idor/comparisons`: Returns differential testing comparison matrix.
+     - `GET /api/runs/{id}/idor/report`: Generates downloadable markdown research report.
+   - **Server Lifecycle & Security (`internal/server/server.go`)**: Integrated `JobManager` and `EventBroker` into server lifecycle, enforced loopback origin CORS restrictions (`127.0.0.1` / `localhost`), and bound server to loopback interface by default.
+
+3. **React Frontend Integration (`web/src/App.jsx`)**:
+   - **Real-Time SSE Event Stream**: Connected to `/api/events` with automatic reconnection, reflecting background job progress, log streams, endpoint discovery, candidate extraction, and validation results.
+   - **Endpoints Intelligence Explorer Tab**:
+     - Global filter toolbar with search, method pills, classification category dropdown, auth state filter, and priority sorting.
+     - Route intelligence table featuring method badges, parameterized routes, origins, classification tags, auth status, and detail drawers.
+     - Endpoint Detail Drawer Modal with full route dossier, query parameters, JSON body fields, and 1-click "Queue for IDOR Differential Testing".
+   - **IDOR Research Center Tab**:
+     - **Sub-Panel 1 (Auth Profiles)**: Side-by-side cards for User A (Owner) and User B (Tester) with principal, tenant, role, and instance inputs, masked secret fields with show/hide toggles, live identity verification status badges, and strict credential isolation notices.
+     - **Sub-Panel 2 (HAR Capture Import)**: Drag-and-drop file uploader with 10MB limit enforcement, owner/tenant assignment, and automated credential redaction explanation.
+     - **Sub-Panel 3 (Candidate Object References)**: One-click "Extract Candidates from Endpoints" trigger, candidate table with location badges (`path`, `query`, `body`, `header`), parameter names, object IDs, and inline access policy selectors.
+     - **Sub-Panel 4 (Differential Testing Matrix)**: Live metrics banner (Confirmed IDOR, Unauthorized Role, Needs Review, Authorized Share), comparison matrix table with status codes and boundary badges, "View Evidence" modal displaying curl reproduction commands and redacted responses, and 1-click "Download IDOR Report (.md)".
+
+4. **Testing & Verification**:
+   - **Frontend Unit Tests (`web/src/App.test.jsx`)**: Added 4 comprehensive test suites covering Endpoints Explorer filtering/inspection, Auth Profile saving/masking/verification, Candidate policy modification, and Differential Matrix evidence viewing. 12/12 tests pass (`npm --prefix web test -- --run`).
+   - **Backend API Test Suite (`internal/server/server_test.go`)**: Added test coverage for status/scope endpoints, workspace runs, persistent job manager, SSE event broker, endpoint query filtering, auth profile management, HAR ingestion, candidate extraction, and differential testing.
+   - **Full Go Test Suite**: 100% test pass rate across all 18 Go packages (`go test ./... -count=1`).
+   - **Static Analysis**: Zero warnings or errors in `go vet ./...` and `gofmt`.
+   - **Production Build**: Production frontend asset bundle compiled cleanly (`npm --prefix web run build`).
+
+## Milestone 2.1: Security Hardening, Reliability and End-to-End Integration ✅
+
+### What Was Built & Remediated
+
+1. **External Scanner Scope Enforcement (`internal/scope`, `internal/tools`)**:
+   - **CIDR Network & DNS Checking**: Added `net.IPNet` parsing and `IsIPInScope` / `ValidateHostAndDNS` to deterministically block out-of-scope or unresolvable scanner targets before external process launch.
+   - **External Scanner Flag Isolation**: Appended mandatory exclusion flags and redirection blockers across all external tools:
+     - `naabu`: `-eh` (exclude hosts).
+     - `nmap`: `--exclude` (exclude targets).
+     - `ffuf`: `-no-redirects` (prevent redirect leakage).
+     - `dalfox`: Disabled external revalidation.
+     - `katana`: `-dr` (disable redirects) and `-duc` (disable update checks).
+     - `nuclei`: `-duc` and `-aff=false` (disable auto-follow redirects).
+
+2. **Credential Storage & OS-Level ACLs (`internal/auth`)**:
+   - **Data Model Segregation**: Confined raw session secrets to `auth_secrets.json`; `auth_profiles.json` strictly stores redacted summaries.
+   - **Windows ACL Enforcement (`internal/auth/acl_windows.go`)**: Enforces `icacls /inheritance:r` and grants full access solely to `%USERNAME%:(F)`.
+   - **Unix ACL Enforcement (`internal/auth/acl_unix.go`)**: Enforces strict POSIX `0600` permissions via `os.Chmod`.
+   - **Atomic File Persistence**: Implemented atomic writes using temporary files and `Sync()` to prevent corruption.
+
+3. **Local REST API & Event Hardening (`internal/server`)**:
+   - **DNS Rebinding Prevention**: Added Host header validation middleware restricting requests to loopback addresses (`127.0.0.1`, `localhost`, `[::1]`).
+   - **Loopback CORS Policy**: Enforced loopback-only CORS across all endpoints.
+   - **Cryptographic Anti-CSRF Token**: Implemented 32-byte cryptographic session token validation (`X-Scoutr-Token`) and loopback header verification (`X-Requested-With: Scoutr`) for all state-changing API requests.
+   - **Path Traversal Guard**: Confined all run/job file paths using `filepath.Rel` against the root runs directory.
+   - **Windows `io/fs` Asset Resolution Fix**: Fixed SPA static file handler in `handleSPA` to use URL path-safe `path.Clean` and `path.Ext`, resolving asset loading failures on Windows.
+   - **SSE Chronological Ordering & Buffer Overrun**: Replayed events are strictly sorted by ID ascending; emits `sync_required` upon buffer overrun.
+
+4. **Process Tree Lifecycle & Queue Bounding (`internal/tools`, `internal/server`)**:
+   - **Windows Subprocess Tree Termination (`internal/tools/runner_windows.go`)**: Uses `taskkill /F /T /PID` to cleanly terminate full process trees upon cancellation.
+   - **Unix Process Group Termination (`internal/tools/runner_unix.go`)**: Uses `syscall.Kill(-pid, SIGKILL)` on process groups.
+   - **Bounded Job Queue**: Bounded job queue to 100 entries with atomic disk sync.
+
+5. **End-to-End Browser Testing & Frontend Integration (`web`)**:
+   - **Transparent Token Injection (`web/src/App.jsx`)**: Installed automated `fetch` interceptor injecting CSRF token and custom headers.
+   - **Playwright Test Suite (`web/e2e/workflows.spec.js`)**: Real headless browser tests verifying Workflows A through F:
+     - Workflow A: Endpoints Explorer search, filtering, and detail drawer inspection.
+     - Workflow B: Auth Profile configuration, secret toggling, and secure saving.
+     - Workflow C: HAR capture review and Candidate Object Reference extraction.
+     - Workflow D: Differential testing matrix and Evidence Bundle inspection.
+     - Workflow E: Scope guard inspection, interactive scope tester, and Tools Center.
+     - Workflow F: New Scan wizard launching, input validation, and modal cancellation.
+
+### Testing Results
+
+- **Go Unit Tests**: 18 of 18 packages pass (100%).
+- **Frontend Unit Tests (Vitest)**: 12 of 12 tests pass.
+- **E2E Browser Tests (Playwright)**: 6 of 6 workflows pass (100%).
+- **Static Analysis**: `go vet ./...` and `gofmt` 100% clean.
+
+## Phase 4: Advanced RCE Discovery and Research Engine ✅
+
+### What Was Built
+
+1. **RCE Domain Subsystem (`internal/rce`)**:
+   - **Data Architecture (`types.go`)**: Domain types for `RCECandidate`, `RCECategory`, `ValidationProfile`, `ValidationAttempt`, `ScoreBreakdown`, `ProcessingChain`, `ProcessingStep`, `Advisory`, `AdvisoryMatch`, and `AdvisoryProgressionTier`.
+   - **Classification & Heuristic Engine (`classifier.go`)**: Deterministic rules identifying 6 execution sink categories:
+     - Command Injection (`command_injection`): system commands, diagnostic tools, shell operators.
+     - Server-Side Template Injection (`ssti`): template engines (Jinja2, Twig, FreeMarker, Thymeleaf, ERB), PDF/email/invoice renderers.
+     - Unsafe Deserialization (`unsafe_deserialization`): binary payloads, Java serialized objects (`rO0`), Python pickle, PHP serialize (`O:`, `a:`), .NET BinaryFormatter.
+     - File Processing & Parser Sinks (`file_processing`): ImageMagick, Ghostscript, FFmpeg, LibreOffice, Pandoc, XML/SVG parsers.
+     - Expression Language Injection (`expression_language`): OGNL, SpEL, MVEL, Unified EL (`${...}`, `%{...}`, `#{...}`).
+     - Dependency / Framework RCE (`dependency_rce` & `background_job_rce`): version correlation and queue managers (Celery, Sidekiq, BullMQ).
+   - **Multi-Step Processing Chains (`chains.go`)**: Pipeline modeling correlating upload sources with conversion sinks and background worker execution.
+   - **Curated Advisory Registry & 6-Tier Progression Model (`advisory.go`)**:
+     - Curated CVE registry: Spring4Shell (CVE-2022-22965), Log4Shell (CVE-2021-44228), Struts2 (CVE-2017-5638), Confluence OGNL (CVE-2022-26134), Ghostscript (CVE-2018-16509), ImageTragick (CVE-2016-3714), Laravel Ignition (CVE-2021-3129), ActiveMQ (CVE-2023-46604), PaperCut MF (CVE-2023-27350), Confluence SSTI (CVE-2023-22527).
+     - Semantic version range checking (`MatchesRange`).
+     - 6-Stage Progression Model: `tech_detected` -> `version_identified` -> `version_affected` -> `component_corroborated` -> `component_reachable` -> `independently_validated`.
+   - **Deterministic Prioritization Formula (`prioritize.go`)**: Clamped 0-100 score based on Base Risk (10-35), Input Exposure (5-25), Auth Barrier (0-20), Tech/CVE Modifier (0-25), and Chain Modifier (0-15), accompanied by transparent human-readable explanations.
+   - **Graduated 3-Profile Validation Engine (`validator.go`)**:
+     - Profile 1 (Passive): 0 network requests; analyzes inventory metadata and advisories.
+     - Profile 2 (Safe Active): Benign mathematical marker arithmetic (`${7*7}` -> `49`, negative control `${7*8}` -> `56`), strict reflection detection and exclusion.
+     - Profile 3 (Manual): Reproducible `curl` command generation with correlation headers.
+     - All active network requests enforced via `httpx.ScopedTransport`.
+   - **Markdown Report Generator (`report.go`)**: Comprehensive RCE research report compilation.
+
+2. **CLI Integration (`internal/cli/rce.go`)**:
+   - Added `scoutr rce discover`, `scoutr rce list`, `scoutr rce validate`, `scoutr rce report`.
+
+3. **REST API & Job Management (`internal/server/rce_api.go`)**:
+   - Endpoints: `/rce/overview`, `/rce/candidates`, `/rce/candidates/{cid}`, `/rce/discover`, `/rce/advisories`, `/rce/validate`, `/rce/report`.
+   - SSE live updates: `rce_candidate_discovered`, `rce_validation_result`.
+
+4. **React Frontend: RCE Research Center (`web/src/App.jsx`)**:
+   - Navigation pill with live count badge and overview shortcut card.
+   - 5 dedicated sub-tabs: Overview & Sinks, Attack Surface Explorer, Candidate Prioritization Queue, Advisory Intelligence (CVEs), Validation Center.
+   - 3-Profile Validation Gate launcher modal.
+   - RCE Evidence Bundle & Verification Audit modal with marker analysis, reflection check audit, and copyable reproducible curl command.
+
+5. **Testing & Verification Audit**:
+   - **Go Unit Tests**: 19 of 19 packages passing (100%).
+   - **Frontend Unit Tests (Vitest)**: 17 of 17 tests passing (100%).
+   - **E2E Browser Tests (Playwright)**: 7 of 7 workflows passing (100%, including Workflow G).
+   - **Static Analysis**: `go vet ./...` and `gofmt` 100% clean.
+
+

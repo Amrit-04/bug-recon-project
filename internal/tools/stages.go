@@ -130,6 +130,9 @@ func RunNaabu(ctx context.Context, runner CommandRunner, s *scope.Scope, hosts [
 		"-exclude-cdn",
 		"-rl", strconv.Itoa(rateLimit),
 	}
+	if s != nil && len(s.OutOfScope) > 0 {
+		args = append(args, "-eh", strings.Join(s.OutOfScope, ","))
+	}
 
 	stdout, _, err := SafeToolExecution(ctx, runner, s, "naabu", args, filteredHosts, InputModeStdin, "")
 	if err != nil {
@@ -266,6 +269,11 @@ func RunNmapServiceScan(ctx context.Context, runner CommandRunner, s *scope.Scop
 		maxRate = 500
 	}
 
+	var nmapExcludes string
+	if s != nil && len(s.OutOfScope) > 0 {
+		nmapExcludes = strings.Join(s.OutOfScope, ",")
+	}
+
 	var results []PortResult
 	for _, target := range targets {
 		if ctx.Err() != nil {
@@ -277,6 +285,14 @@ func RunNmapServiceScan(ctx context.Context, runner CommandRunner, s *scope.Scop
 		}
 		if !FilterDiscoveredItem(s, host) {
 			continue
+		}
+
+		// DNS resolution check: ensure target host does not resolve to out-of-scope or forbidden IPs
+		if s != nil {
+			if _, dnsErr := s.ValidateHostAndDNS(ctx, host); dnsErr != nil {
+				log("[WARN] skipping nmap target %s: DNS validation failed (%v)", host, dnsErr)
+				continue
+			}
 		}
 
 		portList := make([]string, 0, len(target.Ports))
@@ -298,9 +314,11 @@ func RunNmapServiceScan(ctx context.Context, runner CommandRunner, s *scope.Scop
 			"--max-retries", "1",
 			"--host-timeout", "60s",
 			"-p", strings.Join(portList, ","),
-			"-oX", "-",
-			host,
 		}
+		if nmapExcludes != "" {
+			args = append(args, "--exclude", nmapExcludes)
+		}
+		args = append(args, "-oX", "-", host)
 
 		log("[INFO] nmap -sV on %s (%d discovered ports)", host, len(portList))
 		stdout, stderr, err := runner.Run(ctx, "nmap", args, nil)
@@ -439,6 +457,16 @@ func RunFFUF(ctx context.Context, runner CommandRunner, s *scope.Scope, targets 
 		if ctx.Err() != nil {
 			return results, ctx.Err()
 		}
+		targetHost := target
+		if u, parseErr := url.Parse(target); parseErr == nil && u.Host != "" {
+			targetHost = u.Host
+		}
+		if s != nil {
+			if _, dnsErr := s.ValidateHostAndDNS(ctx, targetHost); dnsErr != nil {
+				log("[WARN] skipping ffuf target %s: DNS validation failed (%v)", target, dnsErr)
+				continue
+			}
+		}
 		template, ok := fuzzableURL(target)
 		if !ok {
 			continue
@@ -496,6 +524,10 @@ func RunFFUF(ctx context.Context, runner CommandRunner, s *scope.Scope, targets 
 		for _, r := range doc.Results {
 			if r.URL == "" || !FilterDiscoveredItem(s, r.URL) {
 				continue
+			}
+			// Scope-filter redirect location to ensure out-of-scope targets are not propagated
+			if r.Redirect != "" && !FilterDiscoveredItem(s, r.Redirect) {
+				r.Redirect = ""
 			}
 			if seen[r.URL] {
 				continue
@@ -587,6 +619,17 @@ func RunDalfox(ctx context.Context, runner CommandRunner, s *scope.Scope, urls [
 	for _, target := range candidates {
 		if ctx.Err() != nil {
 			return results, ctx.Err()
+		}
+
+		targetHost := target
+		if u, parseErr := url.Parse(target); parseErr == nil && u.Host != "" {
+			targetHost = u.Host
+		}
+		if s != nil {
+			if _, dnsErr := s.ValidateHostAndDNS(ctx, targetHost); dnsErr != nil {
+				log("[WARN] skipping dalfox target %s: DNS validation failed (%v)", target, dnsErr)
+				continue
+			}
 		}
 
 		outFile, err := os.CreateTemp("", "scoutr-dalfox-*.json")

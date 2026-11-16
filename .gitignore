@@ -36,6 +36,9 @@ reports/
 
 # Stray artifacts
 *.rdb
+test-results/
+web/test-results/
+web/test-runs/
 
 # OS specific files
 .DS_Store

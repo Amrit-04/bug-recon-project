@@ -32,7 +32,20 @@ import {
   Wrench,
   X,
   ChevronDown,
-  ChevronUp
+  ChevronUp,
+  UserCheck,
+  UserX,
+  UploadCloud,
+  Download,
+  Key,
+  Share2,
+  Database,
+  Users,
+  Flame,
+  Bug,
+  FileCode,
+  Crosshair,
+  BookOpen
 } from 'lucide-react';
 
 const SEVERITY_CONFIG = {
@@ -47,6 +60,93 @@ const STATUS_CONFIG = {
   Verified: { icon: CheckCircle2, color: 'text-emerald-400', bg: 'bg-emerald-500/10', border: 'border-emerald-500/30' },
   NeedsManualReview: { icon: AlertTriangle, color: 'text-amber-400', bg: 'bg-amber-500/10', border: 'border-amber-500/30' },
   Suppressed: { icon: XCircle, color: 'text-slate-400', bg: 'bg-slate-500/10', border: 'border-slate-500/30' }
+};
+
+const RCE_CATEGORY_CONFIG = {
+  file_processing: {
+    label: 'File Processing',
+    color: 'amber',
+    bg: 'bg-amber-500/10',
+    border: 'border-amber-500/30',
+    text: 'text-amber-300',
+    badge: 'bg-amber-500/20 text-amber-300 border border-amber-500/40',
+    icon: FileCode,
+    description: 'Image converters, PDF generators, document parsers, archive extractors'
+  },
+  ssti: {
+    label: 'Template Injection (SSTI)',
+    color: 'purple',
+    bg: 'bg-purple-500/10',
+    border: 'border-purple-500/30',
+    text: 'text-purple-300',
+    badge: 'bg-purple-500/20 text-purple-300 border border-purple-500/40',
+    icon: Code2,
+    description: 'Jinja2, FreeMarker, Twig, Velocity, Pebble template engines'
+  },
+  command_injection: {
+    label: 'Command Injection',
+    color: 'red',
+    bg: 'bg-red-500/10',
+    border: 'border-red-500/30',
+    text: 'text-red-300',
+    badge: 'bg-red-500/20 text-red-300 border border-red-500/40',
+    icon: Terminal,
+    description: 'OS process spawns, network utilities (ping/traceroute), shell scripts'
+  },
+  deserialization: {
+    label: 'Insecure Deserialization',
+    color: 'pink',
+    bg: 'bg-pink-500/10',
+    border: 'border-pink-500/30',
+    text: 'text-pink-300',
+    badge: 'bg-pink-500/20 text-pink-300 border border-pink-500/40',
+    icon: Database,
+    description: 'Java serialization, Python pickle/yaml, PHP unserialize, .NET formatters'
+  },
+  expression_language: {
+    label: 'Expression Language',
+    color: 'blue',
+    bg: 'bg-blue-500/10',
+    border: 'border-blue-500/30',
+    text: 'text-blue-300',
+    badge: 'bg-blue-500/20 text-blue-300 border border-blue-500/40',
+    icon: Hash,
+    description: 'Spring SpEL, Struts OGNL, MVEL, JEXL expressions'
+  },
+  background_jobs: {
+    label: 'Background Job Queues',
+    color: 'cyan',
+    bg: 'bg-cyan-500/10',
+    border: 'border-cyan-500/30',
+    text: 'text-cyan-300',
+    badge: 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/40',
+    icon: Cpu,
+    description: 'Celery, BullMQ, Sidekiq async worker task payloads'
+  }
+};
+
+const RCE_TIER_CONFIG = {
+  component_reachable: { label: 'Component Reachable', bg: 'bg-emerald-500/20', text: 'text-emerald-300', border: 'border-emerald-500/40' },
+  ComponentReachable: { label: 'Component Reachable', bg: 'bg-emerald-500/20', text: 'text-emerald-300', border: 'border-emerald-500/40' },
+  component_corroborated: { label: 'Component Corroborated', bg: 'bg-cyan-500/20', text: 'text-cyan-300', border: 'border-cyan-500/40' },
+  ComponentCorroborated: { label: 'Component Corroborated', bg: 'bg-cyan-500/20', text: 'text-cyan-300', border: 'border-cyan-500/40' },
+  version_affected: { label: 'Version Affected', bg: 'bg-blue-500/20', text: 'text-blue-300', border: 'border-blue-500/40' },
+  ComponentPresent: { label: 'Component Present', bg: 'bg-blue-500/20', text: 'text-blue-300', border: 'border-blue-500/40' },
+  version_identified: { label: 'Version Identified', bg: 'bg-amber-500/20', text: 'text-amber-300', border: 'border-amber-500/40' },
+  ComponentInferred: { label: 'Component Inferred', bg: 'bg-amber-500/20', text: 'text-amber-300', border: 'border-amber-500/40' },
+  tech_detected: { label: 'Technology Detected', bg: 'bg-slate-700/60', text: 'text-slate-300', border: 'border-slate-600' },
+  TechnologyCorrelated: { label: 'Technology Correlated', bg: 'bg-slate-700/60', text: 'text-slate-300', border: 'border-slate-600' },
+  none: { label: 'Uncorroborated', bg: 'bg-slate-800', text: 'text-slate-400', border: 'border-slate-700' },
+  Uncorroborated: { label: 'Uncorroborated', bg: 'bg-slate-800', text: 'text-slate-400', border: 'border-slate-700' }
+};
+
+const getLastAttempt = (cand) => {
+  if (!cand) return null;
+  if (cand.last_attempt) return cand.last_attempt;
+  if (cand.validation_attempts && cand.validation_attempts.length > 0) {
+    return cand.validation_attempts[cand.validation_attempts.length - 1];
+  }
+  return null;
 };
 
 const DEFAULT_PROVIDERS = [
@@ -84,6 +184,25 @@ const DEFAULT_PROVIDERS = [
   }
 ];
 
+// Global local API token for CSRF & Host validation protection
+let scoutrApiToken = '';
+
+// Transparently inject loopback protection headers for all outgoing API requests
+if (typeof window !== 'undefined' && !window.__scoutr_fetch_interceptor) {
+  window.__scoutr_fetch_interceptor = true;
+  const origFetch = window.fetch;
+  window.fetch = async (input, init = {}) => {
+    const headers = new Headers(init.headers || {});
+    if (!headers.has('X-Requested-With')) {
+      headers.set('X-Requested-With', 'Scoutr');
+    }
+    if (scoutrApiToken && !headers.has('X-Scoutr-Token')) {
+      headers.set('X-Scoutr-Token', scoutrApiToken);
+    }
+    return origFetch(input, { ...init, headers });
+  };
+}
+
 export default function App() {
   const [runs, setRuns] = useState([]);
   const [selectedRunId, setSelectedRunId] = useState('');
@@ -91,6 +210,18 @@ export default function App() {
   const [scope, setScope] = useState(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+
+  // Fetch local API auth token on mount
+  useEffect(() => {
+    fetch('/api/auth/token')
+      .then(r => r.ok ? r.json() : null)
+      .then(data => {
+        if (data?.token) {
+          scoutrApiToken = data.token;
+        }
+      })
+      .catch(() => {});
+  }, []);
 
   // Run artifacts
   const [inventory, setInventory] = useState([]);
@@ -102,6 +233,74 @@ export default function App() {
   const [triage, setTriage] = useState(null);
   const [drafts, setDrafts] = useState([]);
   const [submissionReady, setSubmissionReady] = useState(null);
+
+  // Endpoints Intelligence state
+  const [endpointsData, setEndpointsData] = useState([]);
+  const [endpointsLoading, setEndpointsLoading] = useState(false);
+  const [endpointSearch, setEndpointSearch] = useState('');
+  const [endpointMethodFilter, setEndpointMethodFilter] = useState('ALL');
+  const [endpointClassFilter, setEndpointClassFilter] = useState('ALL');
+  const [endpointAuthFilter, setEndpointAuthFilter] = useState('ALL');
+  const [selectedEndpoint, setSelectedEndpoint] = useState(null);
+  const [queuedEndpointMap, setQueuedEndpointMap] = useState({});
+
+  // IDOR Research Center state
+  const [authProfiles, setAuthProfiles] = useState([]);
+  const [idorCandidates, setIdorCandidates] = useState([]);
+  const [idorComparisons, setIdorComparisons] = useState([]);
+  const [idorSubTab, setIdorSubTab] = useState('profiles'); // 'profiles' | 'har' | 'candidates' | 'matrix'
+  const [userAForm, setUserAForm] = useState({
+    principal_label: 'user_a',
+    tenant_label: 'tenant_1',
+    instance_label: 'default',
+    role_label: 'member',
+    auth_type: 'bearer',
+    identity_endpoint: '',
+    token: ''
+  });
+  const [userBForm, setUserBForm] = useState({
+    principal_label: 'user_b',
+    tenant_label: 'tenant_2',
+    instance_label: 'default',
+    role_label: 'member',
+    auth_type: 'bearer',
+    identity_endpoint: '',
+    token: ''
+  });
+  const [profileSaving, setProfileSaving] = useState(false);
+  const [profileNotice, setProfileNotice] = useState(null);
+  const [verifyingPrincipal, setVerifyingPrincipal] = useState('');
+  const [harUploading, setHarUploading] = useState(false);
+  const [harNotice, setHarNotice] = useState(null);
+  const [harFile, setHarFile] = useState(null);
+  const [harOwner, setHarOwner] = useState('user_a');
+  const [harTenant, setHarTenant] = useState('tenant_1');
+  const [buildingInventory, setBuildingInventory] = useState(false);
+  const [runningDifferential, setRunningDifferential] = useState(false);
+  const [activeEvidenceComp, setActiveEvidenceComp] = useState(null);
+  const [candidateFilter, setCandidateFilter] = useState('');
+  const [showTokenA, setShowTokenA] = useState(false);
+  const [showTokenB, setShowTokenB] = useState(false);
+
+  // RCE Research Center state
+  const [rceCandidates, setRceCandidates] = useState([]);
+  const [rceOverview, setRceOverview] = useState(null);
+  const [rceAdvisories, setRceAdvisories] = useState([]);
+  const [rceSubTab, setRceSubTab] = useState('overview'); // 'overview' | 'explorer' | 'queue' | 'advisories' | 'validation'
+  const [selectedRceCandidate, setSelectedRceCandidate] = useState(null);
+  const [rceValidationModalCand, setRceValidationModalCand] = useState(null);
+  const [rceEvidenceModalCand, setRceEvidenceModalCand] = useState(null);
+  const [rceCategoryFilter, setRceCategoryFilter] = useState('ALL');
+  const [rceStatusFilter, setRceStatusFilter] = useState('ALL');
+  const [rceSearchFilter, setRceSearchFilter] = useState('');
+  const [rceDiscovering, setRceDiscovering] = useState(false);
+  const [rceValidating, setRceValidating] = useState(false);
+  const [rceValidationProfile, setRceValidationProfile] = useState('safe_active');
+  const [rceValidationAuthPrincipal, setRceValidationAuthPrincipal] = useState('');
+  const [rceNotice, setRceNotice] = useState(null);
+  const [rceCandidateNotes, setRceCandidateNotes] = useState('');
+  const [rceCandidateStatus, setRceCandidateStatus] = useState('');
+  const [rceSavingNotes, setRceSavingNotes] = useState(false);
 
   // LLM Studio & llama.cpp interactive triage state
   const [llmProviders, setLlmProviders] = useState(DEFAULT_PROVIDERS);
@@ -314,7 +513,14 @@ export default function App() {
         findingsRes,
         triageRes,
         draftsRes,
-        subRes
+        subRes,
+        epRes,
+        profRes,
+        candRes,
+        compRes,
+        rceCandRes,
+        rceOverviewRes,
+        rceAdvRes
       ] = await Promise.all([
         fetch(`/api/runs/${selectedRunId}/inventory`).then(r => r.ok ? r.json() : []),
         fetch(`/api/runs/${selectedRunId}/ports`).then(r => r.ok ? r.json() : []),
@@ -324,7 +530,14 @@ export default function App() {
         fetch(`/api/runs/${selectedRunId}/findings`).then(r => r.ok ? r.json() : []),
         fetch(`/api/runs/${selectedRunId}/triage`).then(r => r.ok ? r.json() : null),
         fetch(`/api/runs/${selectedRunId}/drafts`).then(r => r.ok ? r.json() : []),
-        fetch(`/api/runs/${selectedRunId}/submission_ready`).then(r => r.ok ? r.json() : null)
+        fetch(`/api/runs/${selectedRunId}/submission_ready`).then(r => r.ok ? r.json() : null),
+        fetch(`/api/runs/${selectedRunId}/endpoints`).then(r => r.ok ? r.json() : { endpoints: [] }),
+        fetch(`/api/runs/${selectedRunId}/auth/profiles`).then(r => r.ok ? r.json() : []),
+        fetch(`/api/runs/${selectedRunId}/idor/candidates`).then(r => r.ok ? r.json() : { candidates: [] }),
+        fetch(`/api/runs/${selectedRunId}/idor/comparisons`).then(r => r.ok ? r.json() : []),
+        fetch(`/api/runs/${selectedRunId}/rce/candidates`).then(r => r.ok ? r.json() : { candidates: [] }),
+        fetch(`/api/runs/${selectedRunId}/rce/overview`).then(r => r.ok ? r.json() : null),
+        fetch(`/api/runs/${selectedRunId}/rce/advisories`).then(r => r.ok ? r.json() : { advisories: [] })
       ]);
 
       setInventory(invRes || []);
@@ -336,8 +549,309 @@ export default function App() {
       setTriage(triageRes);
       setDrafts(draftsRes || []);
       setSubmissionReady(subRes);
+      setEndpointsData(epRes?.endpoints || []);
+      setAuthProfiles(profRes || []);
+      setIdorCandidates(candRes?.candidates || []);
+      setIdorComparisons(compRes || []);
+      setRceCandidates(rceCandRes?.candidates || []);
+      setRceOverview(rceOverviewRes);
+      setRceAdvisories(rceAdvRes?.advisories || []);
+
+      // If user A / user B exist in profile summaries, populate forms
+      if (profRes && profRes.length > 0) {
+        const pA = profRes.find(p => p.principal_label === 'user_a');
+        if (pA) {
+          setUserAForm(prev => ({
+            ...prev,
+            principal_label: pA.principal_label,
+            tenant_label: pA.tenant_label,
+            instance_label: pA.instance_label || 'default',
+            role_label: pA.role_label || 'member',
+            auth_type: pA.auth_type || 'bearer',
+            identity_endpoint: pA.identity_endpoint || ''
+          }));
+        }
+        const pB = profRes.find(p => p.principal_label === 'user_b');
+        if (pB) {
+          setUserBForm(prev => ({
+            ...prev,
+            principal_label: pB.principal_label,
+            tenant_label: pB.tenant_label,
+            instance_label: pB.instance_label || 'default',
+            role_label: pB.role_label || 'member',
+            auth_type: pB.auth_type || 'bearer',
+            identity_endpoint: pB.identity_endpoint || ''
+          }));
+        }
+      }
     } catch (err) {
       console.error('Failed loading run details:', err);
+    }
+  };
+
+  const handleQueueEndpoint = (ep) => {
+    setQueuedEndpointMap(prev => ({
+      ...prev,
+      [ep.url || ep.normalized_route]: true
+    }));
+  };
+
+  const handleSaveAuthProfile = async (form) => {
+    if (!selectedRunId) return;
+    setProfileSaving(true);
+    setProfileNotice(null);
+    try {
+      const res = await fetch(`/api/runs/${selectedRunId}/auth/profiles`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(form)
+      });
+      if (res.ok) {
+        setProfileNotice({ type: 'success', msg: `Saved credentials for ${form.principal_label} (stored securely)` });
+        const listRes = await fetch(`/api/runs/${selectedRunId}/auth/profiles`);
+        if (listRes.ok) {
+          setAuthProfiles(await listRes.json());
+        }
+      } else {
+        const txt = await res.text();
+        setProfileNotice({ type: 'error', msg: txt || 'Failed to save profile' });
+      }
+    } catch (err) {
+      setProfileNotice({ type: 'error', msg: err.message });
+    } finally {
+      setProfileSaving(false);
+    }
+  };
+
+  const handleVerifyProfile = async (principal) => {
+    if (!selectedRunId) return;
+    setVerifyingPrincipal(principal);
+    setProfileNotice(null);
+    try {
+      const res = await fetch(`/api/runs/${selectedRunId}/auth/profiles/verify`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ principal_label: principal })
+      });
+      const data = await res.json();
+      if (data.identity_status === 'verified') {
+        setProfileNotice({ type: 'success', msg: `Identity verified: ID = ${data.verified_id} (Tenant: ${data.verified_tenant || 'N/A'}, Role: ${data.verified_role || 'N/A'})` });
+      } else {
+        setProfileNotice({ type: 'error', msg: `Verification failed: ${data.error || 'Identity endpoint rejected verification'}` });
+      }
+      const listRes = await fetch(`/api/runs/${selectedRunId}/auth/profiles`);
+      if (listRes.ok) {
+        setAuthProfiles(await listRes.json());
+      }
+    } catch (err) {
+      setProfileNotice({ type: 'error', msg: err.message });
+    } finally {
+      setVerifyingPrincipal('');
+    }
+  };
+
+  const handleHARUploadSubmit = async (e) => {
+    e.preventDefault();
+    if (!selectedRunId || !harFile) {
+      alert('Please select a .har file first');
+      return;
+    }
+    setHarUploading(true);
+    setHarNotice(null);
+    try {
+      const formData = new FormData();
+      formData.append('har', harFile);
+      const res = await fetch(`/api/runs/${selectedRunId}/auth/har?owner=${encodeURIComponent(harOwner)}&tenant=${encodeURIComponent(harTenant)}`, {
+        method: 'POST',
+        body: formData
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setHarNotice({ type: 'success', msg: `Imported ${data.endpoints_ingested || 0} endpoints and ${data.candidates_ingested || 0} candidate object references with all secrets redacted.` });
+        setHarFile(null);
+        loadRunData();
+      } else {
+        const txt = await res.text();
+        setHarNotice({ type: 'error', msg: txt || 'HAR upload failed' });
+      }
+    } catch (err) {
+      setHarNotice({ type: 'error', msg: err.message });
+    } finally {
+      setHarUploading(false);
+    }
+  };
+
+  const handleBuildIDORInventory = async () => {
+    if (!selectedRunId) return;
+    setBuildingInventory(true);
+    try {
+      const res = await fetch(`/api/runs/${selectedRunId}/idor/inventory`, { method: 'POST' });
+      if (res.ok) {
+        setTimeout(loadRunData, 1500);
+      }
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setBuildingInventory(false);
+    }
+  };
+
+  const handleUpdateCandidatePolicy = async (candidateId, policy) => {
+    if (!selectedRunId) return;
+    try {
+      const res = await fetch(`/api/runs/${selectedRunId}/idor/candidates/${candidateId}/policy`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ access_policy: policy })
+      });
+      if (res.ok) {
+        loadRunData();
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const handleRunDifferentialTesting = async () => {
+    if (!selectedRunId) return;
+    setRunningDifferential(true);
+    try {
+      const res = await fetch(`/api/runs/${selectedRunId}/idor/compare`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          user_a_label: 'user_a',
+          user_b_label: 'user_b'
+        })
+      });
+      if (res.ok) {
+        setIdorSubTab('matrix');
+        setTimeout(loadRunData, 2000);
+      }
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setRunningDifferential(false);
+    }
+  };
+
+  const handleDiscoverRCE = async () => {
+    if (!selectedRunId) return;
+    setRceDiscovering(true);
+    setRceNotice(null);
+    try {
+      const res = await fetch(`/api/runs/${selectedRunId}/rce/discover`, {
+        method: 'POST'
+      });
+      if (!res.ok) {
+        const txt = await res.text();
+        throw new Error(txt || `HTTP ${res.status}`);
+      }
+      const data = await res.json();
+      setRceNotice({
+        type: 'success',
+        msg: `RCE Discovery finished: discovered ${data.candidates_count || 0} candidates across ${data.endpoints_analyzed || 0} endpoints (${data.chains_count || 0} multi-step chains)!`
+      });
+      const [candR, overR, advR] = await Promise.all([
+        fetch(`/api/runs/${selectedRunId}/rce/candidates`).then(r => r.ok ? r.json() : { candidates: [] }),
+        fetch(`/api/runs/${selectedRunId}/rce/overview`).then(r => r.ok ? r.json() : null),
+        fetch(`/api/runs/${selectedRunId}/rce/advisories`).then(r => r.ok ? r.json() : { advisories: [] })
+      ]);
+      setRceCandidates(candR?.candidates || []);
+      setRceOverview(overR);
+      setRceAdvisories(advR?.advisories || []);
+    } catch (err) {
+      setRceNotice({ type: 'error', msg: `RCE Discovery failed: ${err.message}` });
+    } finally {
+      setRceDiscovering(false);
+    }
+  };
+
+  const handleValidateRCE = async (candidateId, profile) => {
+    if (!selectedRunId || !candidateId) return;
+    setRceValidating(true);
+    setRceNotice(null);
+    try {
+      const res = await fetch(`/api/runs/${selectedRunId}/rce/validate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          candidate_id: candidateId,
+          profile: profile || rceValidationProfile,
+          auth_principal: rceValidationAuthPrincipal
+        })
+      });
+      if (!res.ok) {
+        const txt = await res.text();
+        throw new Error(txt || `HTTP ${res.status}`);
+      }
+      const result = await res.json();
+      setRceNotice({
+        type: 'success',
+        msg: `Validation completed for ${candidateId}: ${result.status} (Profile: ${result.profile})`
+      });
+      setRceValidationModalCand(null);
+      const [candR, overR, findR] = await Promise.all([
+        fetch(`/api/runs/${selectedRunId}/rce/candidates`).then(r => r.ok ? r.json() : { candidates: [] }),
+        fetch(`/api/runs/${selectedRunId}/rce/overview`).then(r => r.ok ? r.json() : null),
+        fetch(`/api/runs/${selectedRunId}/findings`).then(r => r.ok ? r.json() : [])
+      ]);
+      setRceCandidates(candR?.candidates || []);
+      setRceOverview(overR);
+      setFindings(findR || []);
+      const updated = (candR?.candidates || []).find(c => c.id === candidateId);
+      if (updated) setSelectedRceCandidate(updated);
+    } catch (err) {
+      setRceNotice({ type: 'error', msg: `RCE Validation failed: ${err.message}` });
+    } finally {
+      setRceValidating(false);
+    }
+  };
+
+  const handleSaveCandidateNotes = async (candidateId) => {
+    if (!selectedRunId || !candidateId) return;
+    setRceSavingNotes(true);
+    try {
+      const res = await fetch(`/api/runs/${selectedRunId}/rce/candidates/${candidateId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          notes: rceCandidateNotes,
+          status: rceCandidateStatus
+        })
+      });
+      if (res.ok) {
+        const updated = await res.json();
+        setSelectedRceCandidate(updated);
+        setRceCandidates(prev => prev.map(c => c.id === candidateId ? updated : c));
+        setRceNotice({ type: 'success', msg: `Candidate ${candidateId} updated successfully` });
+      }
+    } catch (err) {
+      setRceNotice({ type: 'error', msg: `Failed updating candidate: ${err.message}` });
+    } finally {
+      setRceSavingNotes(false);
+    }
+  };
+
+  const handleExportRCEReport = async () => {
+    if (!selectedRunId) return;
+    try {
+      const res = await fetch(`/api/runs/${selectedRunId}/rce/report`);
+      if (!res.ok) {
+        throw new Error('Report not generated yet. Run discovery or validation first.');
+      }
+      const text = await res.text();
+      const blob = new Blob([text], { type: 'text/markdown' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `rce_research_report_${selectedRunId}.md`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      setRceNotice({ type: 'error', msg: `Export failed: ${err.message}` });
     }
   };
 
@@ -509,6 +1023,127 @@ export default function App() {
       .catch(() => setDraftContent('Failed to load draft.'));
   }, [selectedRunId, activeDraft]);
 
+  // Real-time Server-Sent Events (SSE) stream listener
+  useEffect(() => {
+    if (typeof window === 'undefined' || !window.EventSource) return;
+
+    let es = null;
+    let reconnectTimeout = null;
+
+    const connectSSE = () => {
+      try {
+        es = new EventSource('/api/events');
+
+        es.addEventListener('progress', (e) => {
+          try {
+            const data = JSON.parse(e.data);
+            setScanStatus(prev => ({
+              ...prev,
+              stage_index: data.stage_index ?? prev.stage_index,
+              stage_name: data.stage ?? prev.stage_name,
+              detail: data.detail ?? prev.detail,
+              progress: data.progress ?? prev.progress
+            }));
+          } catch (_) {}
+        });
+
+        es.addEventListener('log', (e) => {
+          try {
+            const data = JSON.parse(e.data);
+            if (data.log) {
+              setScanStatus(prev => ({
+                ...prev,
+                logs: [...prev.logs.slice(-500), data.log]
+              }));
+            }
+          } catch (_) {}
+        });
+
+        es.addEventListener('endpoint_discovered', () => {
+          if (selectedRunId) {
+            fetch(`/api/runs/${selectedRunId}/endpoints`)
+              .then(r => r.ok ? r.json() : null)
+              .then(d => { if (d?.endpoints) setEndpointsData(d.endpoints); });
+          }
+        });
+
+        es.addEventListener('candidate_discovered', () => {
+          if (selectedRunId) {
+            fetch(`/api/runs/${selectedRunId}/idor/candidates`)
+              .then(r => r.ok ? r.json() : null)
+              .then(d => { if (d?.candidates) setIdorCandidates(d.candidates); });
+          }
+        });
+
+        es.addEventListener('validation_result', () => {
+          if (selectedRunId) {
+            fetch(`/api/runs/${selectedRunId}/findings`)
+              .then(r => r.ok ? r.json() : null)
+              .then(d => { if (d) setFindings(d); });
+            fetch(`/api/runs/${selectedRunId}/idor/comparisons`)
+              .then(r => r.ok ? r.json() : null)
+              .then(d => { if (d) setIdorComparisons(d); });
+          }
+        });
+
+        es.addEventListener('rce_candidate_discovered', () => {
+          if (selectedRunId) {
+            fetch(`/api/runs/${selectedRunId}/rce/candidates`)
+              .then(r => r.ok ? r.json() : null)
+              .then(d => { if (d?.candidates) setRceCandidates(d.candidates); });
+            fetch(`/api/runs/${selectedRunId}/rce/overview`)
+              .then(r => r.ok ? r.json() : null)
+              .then(d => { if (d) setRceOverview(d); });
+          }
+        });
+
+        es.addEventListener('rce_validation_result', () => {
+          if (selectedRunId) {
+            fetch(`/api/runs/${selectedRunId}/rce/candidates`)
+              .then(r => r.ok ? r.json() : null)
+              .then(d => { if (d?.candidates) setRceCandidates(d.candidates); });
+            fetch(`/api/runs/${selectedRunId}/rce/overview`)
+              .then(r => r.ok ? r.json() : null)
+              .then(d => { if (d) setRceOverview(d); });
+            fetch(`/api/runs/${selectedRunId}/findings`)
+              .then(r => r.ok ? r.json() : null)
+              .then(d => { if (d) setFindings(d); });
+          }
+        });
+
+        es.addEventListener('job_completed', () => {
+          fetchRunsAndScope();
+          if (selectedRunId) loadRunData();
+        });
+
+        es.addEventListener('job_cancelled', () => {
+          fetchRunsAndScope();
+          if (selectedRunId) loadRunData();
+        });
+
+        es.addEventListener('sync_required', () => {
+          // Reconnection detected a ring buffer gap; resync full workspace state
+          fetchRunsAndScope();
+          if (selectedRunId) loadRunData();
+        });
+
+        es.onerror = () => {
+          if (es) es.close();
+          reconnectTimeout = setTimeout(connectSSE, 4000);
+        };
+      } catch (err) {
+        reconnectTimeout = setTimeout(connectSSE, 5000);
+      }
+    };
+
+    connectSSE();
+
+    return () => {
+      if (es) es.close();
+      if (reconnectTimeout) clearTimeout(reconnectTimeout);
+    };
+  }, [selectedRunId]);
+
   // Test target against scope
   const testScopeRule = (target) => {
     if (!scope || !target) {
@@ -570,6 +1205,56 @@ export default function App() {
       const matchID = f.id?.toLowerCase().includes(q);
       const matchImpact = f.impact?.toLowerCase().includes(q);
       return matchTitle || matchTarget || matchRule || matchID || matchImpact;
+    }
+    return true;
+  });
+
+  // Filtered endpoints
+  const filteredEndpoints = endpointsData.filter(ep => {
+    if (endpointMethodFilter !== 'ALL') {
+      if (!ep.methods?.some(m => m.toUpperCase() === endpointMethodFilter)) return false;
+    }
+    if (endpointClassFilter !== 'ALL') {
+      if (!ep.classifications?.some(c => c.category === endpointClassFilter)) return false;
+    }
+    if (endpointAuthFilter !== 'ALL') {
+      if (!ep.auth_observations?.some(o => o.status === endpointAuthFilter)) return false;
+    }
+    if (endpointSearch) {
+      const q = endpointSearch.toLowerCase();
+      const matchUrl = ep.url?.toLowerCase().includes(q);
+      const matchRoute = ep.normalized_route?.toLowerCase().includes(q);
+      const matchParam = ep.query_params?.some(p => p.toLowerCase().includes(q));
+      return matchUrl || matchRoute || matchParam;
+    }
+    return true;
+  });
+
+  // Filtered IDOR candidates
+  const filteredCandidates = idorCandidates.filter(c => {
+    if (candidateFilter) {
+      const q = candidateFilter.toLowerCase();
+      return (
+        c.object_id?.toLowerCase().includes(q) ||
+        c.route_template?.toLowerCase().includes(q) ||
+        c.param_name?.toLowerCase().includes(q)
+      );
+    }
+    return true;
+  });
+
+  // Filtered RCE candidates
+  const filteredRceCandidates = rceCandidates.filter(c => {
+    if (rceCategoryFilter !== 'ALL' && c.category !== rceCategoryFilter) return false;
+    if (rceStatusFilter !== 'ALL' && c.status !== rceStatusFilter) return false;
+    if (rceSearchFilter) {
+      const q = rceSearchFilter.toLowerCase();
+      const matchRoute = c.route?.toLowerCase().includes(q);
+      const matchUrl = c.target_url?.toLowerCase().includes(q);
+      const matchHypo = c.hypothesis?.toLowerCase().includes(q);
+      const matchSink = c.suspected_sink?.toLowerCase().includes(q);
+      const matchId = c.id?.toLowerCase().includes(q);
+      return matchRoute || matchUrl || matchHypo || matchSink || matchId;
     }
     return true;
   });
@@ -656,6 +1341,9 @@ export default function App() {
           {[
             { id: 'overview', label: 'Overview', icon: Activity },
             { id: 'tools', label: 'Tools Center', icon: Zap, highlight: true },
+            { id: 'endpoints', label: 'Endpoints Explorer', icon: Layers, count: endpointsData.length },
+            { id: 'idor', label: 'IDOR Center', icon: Lock, count: idorCandidates.length, highlight: true },
+            { id: 'rce', label: 'RCE Research Center', icon: Terminal, count: rceCandidates.length, highlight: true },
             { id: 'recon', label: 'Attack Surface', icon: Globe, count: ports.length + httpx.length },
             { id: 'findings', label: 'Readiness Gate & Findings', icon: Shield, count: findings.length },
             { id: 'drafts', label: 'Drafts & Reports', icon: FileText, count: drafts.length },
@@ -888,7 +1576,7 @@ export default function App() {
                 )}
 
                 {/* Quick Action Shortcuts */}
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
                   <button
                     onClick={() => setScanModalOpen(true)}
                     className="p-3.5 rounded-xl bg-gradient-to-r from-cyan-950/40 to-blue-950/40 border border-cyan-800/40 hover:border-cyan-500/60 flex items-center justify-between text-left group transition cursor-pointer"
@@ -915,6 +1603,20 @@ export default function App() {
                       <p className="text-[11px] text-slate-400 mt-0.5">Run individual tools on demand</p>
                     </div>
                     <ChevronRight className="w-4 h-4 text-slate-500 group-hover:text-amber-400 group-hover:translate-x-0.5 transition" />
+                  </button>
+
+                  <button
+                    onClick={() => setActiveTab('rce')}
+                    className="p-3.5 rounded-xl bg-gradient-to-r from-purple-950/40 to-slate-900/60 border border-purple-800/40 hover:border-purple-500/60 flex items-center justify-between text-left group transition cursor-pointer"
+                  >
+                    <div>
+                      <div className="text-xs font-bold text-purple-300 flex items-center gap-1.5">
+                        <Terminal className="w-3.5 h-3.5 text-purple-400" />
+                        <span>RCE Research Center</span>
+                      </div>
+                      <p className="text-[11px] text-slate-400 mt-0.5">{rceCandidates.length} potential attack surfaces</p>
+                    </div>
+                    <ChevronRight className="w-4 h-4 text-slate-500 group-hover:text-purple-400 group-hover:translate-x-0.5 transition" />
                   </button>
 
                   <button
@@ -2362,9 +3064,1878 @@ export default function App() {
                 </div>
               </div>
             )}
+
+            {/* ENDPOINTS EXPLORER TAB */}
+            {activeTab === 'endpoints' && (
+              <div className="space-y-6">
+                {/* Header */}
+                <div className="flex flex-wrap items-center justify-between gap-4 p-6 rounded-2xl bg-[#0c1322] border border-slate-800 shadow-xl">
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <Layers className="w-5 h-5 text-cyan-400" />
+                      <h2 className="text-lg font-bold text-white tracking-tight">Endpoint Intelligence Explorer</h2>
+                      <span className="text-xs font-mono font-semibold px-2.5 py-0.5 rounded-full bg-cyan-500/10 text-cyan-300 border border-cyan-500/20">
+                        {endpointsData.length} Discovered
+                      </span>
+                    </div>
+                    <p className="text-xs text-slate-400 mt-1">
+                      Normalized application route inventory aggregated across crawlers, historical archives, JS analyzers, and API specifications.
+                    </p>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => loadRunData()}
+                      disabled={endpointsLoading}
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-800/80 hover:bg-slate-700 border border-slate-700 text-slate-300 text-xs font-medium transition cursor-pointer"
+                    >
+                      <RefreshCw className={`w-3.5 h-3.5 ${endpointsLoading ? 'animate-spin text-cyan-400' : ''}`} />
+                      <span>Refresh</span>
+                    </button>
+                  </div>
+                </div>
+
+                {/* Search & Filters */}
+                <div className="p-4 rounded-xl bg-slate-900/60 border border-slate-800 space-y-3">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
+                    {/* Search */}
+                    <div className="lg:col-span-2 relative">
+                      <Search className="w-4 h-4 text-slate-500 absolute left-3 top-2.5" />
+                      <input
+                        type="text"
+                        placeholder="Search URL, route path, or parameter..."
+                        value={endpointSearch}
+                        onChange={e => setEndpointSearch(e.target.value)}
+                        className="w-full bg-slate-950/80 border border-slate-800 rounded-lg pl-9 pr-3 py-2 text-xs text-slate-200 font-mono placeholder:text-slate-600 focus:outline-none focus:border-cyan-500"
+                      />
+                    </div>
+
+                    {/* Method */}
+                    <div>
+                      <select
+                        value={endpointMethodFilter}
+                        onChange={e => setEndpointMethodFilter(e.target.value)}
+                        className="w-full bg-slate-950/80 border border-slate-800 rounded-lg px-3 py-2 text-xs text-slate-200 font-mono focus:outline-none focus:border-cyan-500 cursor-pointer"
+                      >
+                        <option value="ALL">All Methods</option>
+                        <option value="GET">GET</option>
+                        <option value="POST">POST</option>
+                        <option value="PUT">PUT</option>
+                        <option value="DELETE">DELETE</option>
+                        <option value="PATCH">PATCH</option>
+                      </select>
+                    </div>
+
+                    {/* Classification */}
+                    <div>
+                      <select
+                        value={endpointClassFilter}
+                        onChange={e => setEndpointClassFilter(e.target.value)}
+                        className="w-full bg-slate-950/80 border border-slate-800 rounded-lg px-3 py-2 text-xs text-slate-200 font-mono focus:outline-none focus:border-cyan-500 cursor-pointer"
+                      >
+                        <option value="ALL">All Categories</option>
+                        <option value="user_data">User Data</option>
+                        <option value="admin">Admin</option>
+                        <option value="auth">Auth</option>
+                        <option value="file_process">File Processing</option>
+                        <option value="doc_convert">Doc Conversion</option>
+                        <option value="template_render">Template Render</option>
+                        <option value="background_job">Background Job</option>
+                        <option value="general_api">General API</option>
+                      </select>
+                    </div>
+
+                    {/* Auth filter */}
+                    <div>
+                      <select
+                        value={endpointAuthFilter}
+                        onChange={e => setEndpointAuthFilter(e.target.value)}
+                        className="w-full bg-slate-950/80 border border-slate-800 rounded-lg px-3 py-2 text-xs text-slate-200 font-mono focus:outline-none focus:border-cyan-500 cursor-pointer"
+                      >
+                        <option value="ALL">All Auth States</option>
+                        <option value="authenticated">Authenticated</option>
+                        <option value="anonymous">Anonymous</option>
+                        <option value="unknown">Unknown</option>
+                      </select>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Endpoints Table */}
+                <div className="rounded-xl border border-slate-800 bg-slate-900/50 overflow-hidden shadow-lg">
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left text-xs border-collapse">
+                      <thead>
+                        <tr className="border-b border-slate-800 bg-slate-900/90 text-slate-400 uppercase font-mono text-[11px]">
+                          <th className="py-3 px-4">Method</th>
+                          <th className="py-3 px-4">Normalized Route</th>
+                          <th className="py-3 px-4">Origin / Host</th>
+                          <th className="py-3 px-4">Classifications</th>
+                          <th className="py-3 px-4">Auth State</th>
+                          <th className="py-3 px-4 text-right">Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-800/60 font-mono">
+                        {filteredEndpoints.length === 0 ? (
+                          <tr>
+                            <td colSpan={6} className="py-12 text-center text-slate-500 font-sans italic">
+                              No endpoints matched the filter criteria.
+                            </td>
+                          </tr>
+                        ) : (
+                          filteredEndpoints.map((ep, idx) => {
+                            const method = ep.methods?.[0] || 'GET';
+                            const isQueued = queuedEndpointMap[ep.url || ep.normalized_route];
+                            return (
+                              <tr key={idx} className="hover:bg-slate-800/40 transition">
+                                <td className="py-3 px-4 whitespace-nowrap">
+                                  <span className={`px-2 py-0.5 rounded text-[11px] font-bold ${
+                                    method === 'GET' ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/25' :
+                                    method === 'POST' ? 'bg-cyan-500/15 text-cyan-400 border border-cyan-500/25' :
+                                    method === 'PUT' ? 'bg-amber-500/15 text-amber-400 border border-amber-500/25' :
+                                    method === 'DELETE' ? 'bg-red-500/15 text-red-400 border border-red-500/25' :
+                                    'bg-slate-800 text-slate-300'
+                                  }`}>
+                                    {method}
+                                  </span>
+                                </td>
+                                <td className="py-3 px-4 font-bold text-slate-200">
+                                  <button
+                                    onClick={() => setSelectedEndpoint(ep)}
+                                    className="hover:text-cyan-300 transition text-left cursor-pointer"
+                                  >
+                                    {ep.normalized_route || ep.url}
+                                  </button>
+                                </td>
+                                <td className="py-3 px-4 text-slate-400">{ep.origin || 'Same-origin'}</td>
+                                <td className="py-3 px-4">
+                                  <div className="flex flex-wrap gap-1">
+                                    {ep.classifications?.map((c, i) => (
+                                      <span key={i} className="px-1.5 py-0.5 rounded bg-blue-500/10 text-blue-300 border border-blue-500/20 text-[10px]">
+                                        {c.category} (P{c.priority})
+                                      </span>
+                                    ))}
+                                  </div>
+                                </td>
+                                <td className="py-3 px-4">
+                                  {ep.auth_observations?.[0] ? (
+                                    <span className={`px-2 py-0.5 rounded text-[10px] ${
+                                      ep.auth_observations[0].status === 'authenticated' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' :
+                                      ep.auth_observations[0].status === 'anonymous' ? 'bg-slate-800 text-slate-400' :
+                                      'bg-amber-500/10 text-amber-400 border border-amber-500/20'
+                                    }`}>
+                                      {ep.auth_observations[0].status}
+                                    </span>
+                                  ) : (
+                                    <span className="text-slate-500">unknown</span>
+                                  )}
+                                </td>
+                                <td className="py-3 px-4 text-right whitespace-nowrap">
+                                  <div className="flex items-center justify-end gap-2">
+                                    <button
+                                      onClick={() => handleQueueEndpoint(ep)}
+                                      className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition cursor-pointer flex items-center gap-1 ${
+                                        isQueued 
+                                          ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30' 
+                                          : 'bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700'
+                                      }`}
+                                    >
+                                      {isQueued ? <Check className="w-3 h-3 text-emerald-400" /> : <Lock className="w-3 h-3 text-cyan-400" />}
+                                      <span>{isQueued ? 'Queued' : 'Queue IDOR'}</span>
+                                    </button>
+                                    <button
+                                      onClick={() => setSelectedEndpoint(ep)}
+                                      className="px-2.5 py-1 rounded-lg bg-cyan-500/15 hover:bg-cyan-500/25 border border-cyan-500/30 text-cyan-300 text-xs font-semibold transition cursor-pointer"
+                                    >
+                                      Inspect
+                                    </button>
+                                  </div>
+                                </td>
+                              </tr>
+                            );
+                          })
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* IDOR RESEARCH CENTER TAB */}
+            {activeTab === 'idor' && (
+              <div className="space-y-6">
+                {/* Header Banner */}
+                <div className="p-6 rounded-2xl bg-gradient-to-r from-[#0d1627] via-[#091120] to-[#0d1627] border border-cyan-500/25 shadow-xl space-y-3">
+                  <div className="flex flex-wrap items-center justify-between gap-4">
+                    <div className="flex items-center gap-3">
+                      <div className="p-3 rounded-2xl bg-gradient-to-tr from-cyan-500 to-blue-600 text-white shadow-lg shadow-cyan-500/25">
+                        <Lock className="w-6 h-6" />
+                      </div>
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <h2 className="text-lg font-bold text-white tracking-tight font-mono">
+                            Authenticated IDOR & Cross-Account Engine
+                          </h2>
+                          <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-cyan-500/15 text-cyan-300 border border-cyan-500/30">
+                            Deterministic Differential Gate
+                          </span>
+                        </div>
+                        <p className="text-xs text-slate-300 mt-1">
+                          Differential testing between two researcher-controlled accounts. Identifies object access violations across tenant and instance boundaries without executing state-changing mutations.
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* Global Action buttons */}
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={handleRunDifferentialTesting}
+                        disabled={runningDifferential || authProfiles.length < 2}
+                        className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition shadow-lg cursor-pointer ${
+                          runningDifferential 
+                            ? 'bg-slate-800 text-slate-500 cursor-not-allowed' 
+                            : 'bg-gradient-to-r from-cyan-500 via-blue-600 to-indigo-600 hover:from-cyan-400 hover:to-indigo-500 text-white shadow-cyan-500/25'
+                        }`}
+                        title={authProfiles.length < 2 ? "Add User A and User B profiles first" : "Run differential tests"}
+                      >
+                        <Zap className={`w-3.5 h-3.5 ${runningDifferential ? 'animate-spin' : 'fill-current'}`} />
+                        <span>{runningDifferential ? 'Testing differential...' : 'Run Differential Testing'}</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Navigation Pills */}
+                  <div className="flex gap-2 pt-3 border-t border-slate-800/80 text-xs font-medium">
+                    {[
+                      { id: 'profiles', label: '1. Auth Profiles', count: authProfiles.length },
+                      { id: 'har', label: '2. HAR Capture Import' },
+                      { id: 'candidates', label: '3. Candidate Object References', count: idorCandidates.length },
+                      { id: 'matrix', label: '4. Differential Testing Matrix', count: idorComparisons.length }
+                    ].map(pill => (
+                      <button
+                        key={pill.id}
+                        onClick={() => setIdorSubTab(pill.id)}
+                        className={`px-3 py-1.5 rounded-lg transition flex items-center gap-1.5 cursor-pointer ${
+                          idorSubTab === pill.id
+                            ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/35 font-semibold'
+                            : 'bg-slate-900/60 hover:bg-slate-800 text-slate-400 hover:text-slate-200 border border-slate-800'
+                        }`}
+                      >
+                        <span>{pill.label}</span>
+                        {pill.count !== undefined && (
+                          <span className="text-[10px] font-mono px-1.5 py-0.2 rounded-full bg-slate-800 text-slate-300">
+                            {pill.count}
+                          </span>
+                        )}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Notice Banners */}
+                {profileNotice && (
+                  <div className={`p-3 rounded-xl border text-xs font-mono flex items-center justify-between ${
+                    profileNotice.type === 'success' ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300' : 'bg-red-500/10 border-red-500/30 text-red-300'
+                  }`}>
+                    <div className="flex items-center gap-2">
+                      {profileNotice.type === 'success' ? <CheckCircle2 className="w-4 h-4" /> : <AlertOctagon className="w-4 h-4" />}
+                      <span>{profileNotice.msg}</span>
+                    </div>
+                    <button onClick={() => setProfileNotice(null)} className="text-slate-400 hover:text-white cursor-pointer">
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                )}
+
+                {/* SUB-PANEL 1: PROFILES */}
+                {idorSubTab === 'profiles' && (
+                  <div className="space-y-6">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                      {/* User A Card */}
+                      <div className="p-5 rounded-2xl bg-slate-900/60 border border-slate-800 space-y-4">
+                        <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+                          <div className="flex items-center gap-2">
+                            <div className="w-8 h-8 rounded-lg bg-emerald-500/20 text-emerald-400 flex items-center justify-center font-bold text-xs border border-emerald-500/30">
+                              A
+                            </div>
+                            <div>
+                              <h3 className="text-sm font-bold text-white">Profile A (Resource Owner / Victim)</h3>
+                              <p className="text-[11px] text-slate-400">Owns target documents, records, and accounts</p>
+                            </div>
+                          </div>
+                          {authProfiles.find(p => p.principal_label === 'user_a')?.identity_status === 'verified' ? (
+                            <span className="px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 text-[10px] font-mono flex items-center gap-1">
+                              <CheckCircle2 className="w-3 h-3 text-emerald-400" />
+                              Verified: {authProfiles.find(p => p.principal_label === 'user_a')?.verified_id}
+                            </span>
+                          ) : (
+                            <span className="px-2 py-0.5 rounded-full bg-slate-800 text-slate-400 border border-slate-700 text-[10px] font-mono">
+                              Unverified
+                            </span>
+                          )}
+                        </div>
+
+                        <div className="space-y-3 text-xs">
+                          <div className="grid grid-cols-2 gap-3">
+                            <div>
+                              <label className="text-[11px] text-slate-400 font-mono">Principal Label</label>
+                              <input
+                                type="text"
+                                value={userAForm.principal_label}
+                                onChange={e => setUserAForm(prev => ({ ...prev, principal_label: e.target.value }))}
+                                className="w-full mt-1 bg-slate-950 border border-slate-800 rounded-lg p-2 text-slate-200 font-mono focus:outline-none focus:border-cyan-500"
+                              />
+                            </div>
+                            <div>
+                              <label className="text-[11px] text-slate-400 font-mono">Tenant / Org Label</label>
+                              <input
+                                type="text"
+                                value={userAForm.tenant_label}
+                                onChange={e => setUserAForm(prev => ({ ...prev, tenant_label: e.target.value }))}
+                                className="w-full mt-1 bg-slate-950 border border-slate-800 rounded-lg p-2 text-slate-200 font-mono focus:outline-none focus:border-cyan-500"
+                              />
+                            </div>
+                          </div>
+
+                          <div className="grid grid-cols-2 gap-3">
+                            <div>
+                              <label className="text-[11px] text-slate-400 font-mono">Role</label>
+                              <input
+                                type="text"
+                                value={userAForm.role_label}
+                                onChange={e => setUserAForm(prev => ({ ...prev, role_label: e.target.value }))}
+                                className="w-full mt-1 bg-slate-950 border border-slate-800 rounded-lg p-2 text-slate-200 font-mono focus:outline-none focus:border-cyan-500"
+                              />
+                            </div>
+                            <div>
+                              <label className="text-[11px] text-slate-400 font-mono">Instance / Shard</label>
+                              <input
+                                type="text"
+                                value={userAForm.instance_label}
+                                onChange={e => setUserAForm(prev => ({ ...prev, instance_label: e.target.value }))}
+                                className="w-full mt-1 bg-slate-950 border border-slate-800 rounded-lg p-2 text-slate-200 font-mono focus:outline-none focus:border-cyan-500"
+                              />
+                            </div>
+                          </div>
+
+                          <div>
+                            <label className="text-[11px] text-slate-400 font-mono flex items-center justify-between">
+                              <span>Identity Endpoint (e.g. /api/me)</span>
+                              <span className="text-slate-500">Proves distinct principal ID</span>
+                            </label>
+                            <div className="flex gap-2 mt-1">
+                              <input
+                                type="text"
+                                placeholder="https://api.example.com/v1/me"
+                                value={userAForm.identity_endpoint}
+                                onChange={e => setUserAForm(prev => ({ ...prev, identity_endpoint: e.target.value }))}
+                                className="flex-1 bg-slate-950 border border-slate-800 rounded-lg p-2 text-slate-200 font-mono focus:outline-none focus:border-cyan-500"
+                              />
+                              <button
+                                onClick={() => handleVerifyProfile(userAForm.principal_label)}
+                                disabled={verifyingPrincipal === userAForm.principal_label}
+                                className="px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-cyan-300 font-semibold transition cursor-pointer flex items-center gap-1.5"
+                              >
+                                <RefreshCw className={`w-3.5 h-3.5 ${verifyingPrincipal === userAForm.principal_label ? 'animate-spin' : ''}`} />
+                                <span>Verify</span>
+                              </button>
+                            </div>
+                          </div>
+
+                          <div>
+                            <label className="text-[11px] text-slate-400 font-mono flex items-center justify-between">
+                              <span>Bearer Token / Authorization Header</span>
+                              <button
+                                type="button"
+                                onClick={() => setShowTokenA(prev => !prev)}
+                                className="text-cyan-400 hover:text-cyan-300 text-[10px]"
+                              >
+                                {showTokenA ? 'Hide Secret' : 'Show Secret'}
+                              </button>
+                            </label>
+                            <input
+                              type={showTokenA ? 'text' : 'password'}
+                              placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+                              value={userAForm.token}
+                              onChange={e => setUserAForm(prev => ({ ...prev, token: e.target.value }))}
+                              className="w-full mt-1 bg-slate-950 border border-slate-800 rounded-lg p-2 text-slate-200 font-mono focus:outline-none focus:border-cyan-500"
+                            />
+                          </div>
+
+                          <button
+                            onClick={() => handleSaveAuthProfile(userAForm)}
+                            disabled={profileSaving}
+                            className="w-full mt-2 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold transition shadow-lg shadow-emerald-500/20 cursor-pointer"
+                          >
+                            Save Profile A
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* User B Card */}
+                      <div className="p-5 rounded-2xl bg-slate-900/60 border border-slate-800 space-y-4">
+                        <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+                          <div className="flex items-center gap-2">
+                            <div className="w-8 h-8 rounded-lg bg-cyan-500/20 text-cyan-400 flex items-center justify-center font-bold text-xs border border-cyan-500/30">
+                              B
+                            </div>
+                            <div>
+                              <h3 className="text-sm font-bold text-white">Profile B (Accessor / Attacker / Tester)</h3>
+                              <p className="text-[11px] text-slate-400">Tests unauthorized cross-tenant/cross-user requests</p>
+                            </div>
+                          </div>
+                          {authProfiles.find(p => p.principal_label === 'user_b')?.identity_status === 'verified' ? (
+                            <span className="px-2 py-0.5 rounded-full bg-cyan-500/15 text-cyan-300 border border-cyan-500/30 text-[10px] font-mono flex items-center gap-1">
+                              <CheckCircle2 className="w-3 h-3 text-cyan-400" />
+                              Verified: {authProfiles.find(p => p.principal_label === 'user_b')?.verified_id}
+                            </span>
+                          ) : (
+                            <span className="px-2 py-0.5 rounded-full bg-slate-800 text-slate-400 border border-slate-700 text-[10px] font-mono">
+                              Unverified
+                            </span>
+                          )}
+                        </div>
+
+                        <div className="space-y-3 text-xs">
+                          <div className="grid grid-cols-2 gap-3">
+                            <div>
+                              <label className="text-[11px] text-slate-400 font-mono">Principal Label</label>
+                              <input
+                                type="text"
+                                value={userBForm.principal_label}
+                                onChange={e => setUserBForm(prev => ({ ...prev, principal_label: e.target.value }))}
+                                className="w-full mt-1 bg-slate-950 border border-slate-800 rounded-lg p-2 text-slate-200 font-mono focus:outline-none focus:border-cyan-500"
+                              />
+                            </div>
+                            <div>
+                              <label className="text-[11px] text-slate-400 font-mono">Tenant / Org Label</label>
+                              <input
+                                type="text"
+                                value={userBForm.tenant_label}
+                                onChange={e => setUserBForm(prev => ({ ...prev, tenant_label: e.target.value }))}
+                                className="w-full mt-1 bg-slate-950 border border-slate-800 rounded-lg p-2 text-slate-200 font-mono focus:outline-none focus:border-cyan-500"
+                              />
+                            </div>
+                          </div>
+
+                          <div className="grid grid-cols-2 gap-3">
+                            <div>
+                              <label className="text-[11px] text-slate-400 font-mono">Role</label>
+                              <input
+                                type="text"
+                                value={userBForm.role_label}
+                                onChange={e => setUserBForm(prev => ({ ...prev, role_label: e.target.value }))}
+                                className="w-full mt-1 bg-slate-950 border border-slate-800 rounded-lg p-2 text-slate-200 font-mono focus:outline-none focus:border-cyan-500"
+                              />
+                            </div>
+                            <div>
+                              <label className="text-[11px] text-slate-400 font-mono">Instance / Shard</label>
+                              <input
+                                type="text"
+                                value={userBForm.instance_label}
+                                onChange={e => setUserBForm(prev => ({ ...prev, instance_label: e.target.value }))}
+                                className="w-full mt-1 bg-slate-950 border border-slate-800 rounded-lg p-2 text-slate-200 font-mono focus:outline-none focus:border-cyan-500"
+                              />
+                            </div>
+                          </div>
+
+                          <div>
+                            <label className="text-[11px] text-slate-400 font-mono flex items-center justify-between">
+                              <span>Identity Endpoint (e.g. /api/me)</span>
+                              <span className="text-slate-500">Proves distinct principal ID</span>
+                            </label>
+                            <div className="flex gap-2 mt-1">
+                              <input
+                                type="text"
+                                placeholder="https://api.example.com/v1/me"
+                                value={userBForm.identity_endpoint}
+                                onChange={e => setUserBForm(prev => ({ ...prev, identity_endpoint: e.target.value }))}
+                                className="flex-1 bg-slate-950 border border-slate-800 rounded-lg p-2 text-slate-200 font-mono focus:outline-none focus:border-cyan-500"
+                              />
+                              <button
+                                onClick={() => handleVerifyProfile(userBForm.principal_label)}
+                                disabled={verifyingPrincipal === userBForm.principal_label}
+                                className="px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-cyan-300 font-semibold transition cursor-pointer flex items-center gap-1.5"
+                              >
+                                <RefreshCw className={`w-3.5 h-3.5 ${verifyingPrincipal === userBForm.principal_label ? 'animate-spin' : ''}`} />
+                                <span>Verify</span>
+                              </button>
+                            </div>
+                          </div>
+
+                          <div>
+                            <label className="text-[11px] text-slate-400 font-mono flex items-center justify-between">
+                              <span>Bearer Token / Authorization Header</span>
+                              <button
+                                type="button"
+                                onClick={() => setShowTokenB(prev => !prev)}
+                                className="text-cyan-400 hover:text-cyan-300 text-[10px]"
+                              >
+                                {showTokenB ? 'Hide Secret' : 'Show Secret'}
+                              </button>
+                            </label>
+                            <input
+                              type={showTokenB ? 'text' : 'password'}
+                              placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+                              value={userBForm.token}
+                              onChange={e => setUserBForm(prev => ({ ...prev, token: e.target.value }))}
+                              className="w-full mt-1 bg-slate-950 border border-slate-800 rounded-lg p-2 text-slate-200 font-mono focus:outline-none focus:border-cyan-500"
+                            />
+                          </div>
+
+                          <button
+                            onClick={() => handleSaveAuthProfile(userBForm)}
+                            disabled={profileSaving}
+                            className="w-full mt-2 py-2 rounded-xl bg-cyan-600 hover:bg-cyan-500 text-white font-bold transition shadow-lg shadow-cyan-500/20 cursor-pointer"
+                          >
+                            Save Profile B
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Credential Isolation Safety Banner */}
+                    <div className="p-4 rounded-xl border border-slate-800 bg-slate-950/70 text-xs text-slate-400 flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <Shield className="w-4 h-4 text-emerald-400" />
+                        <span>Strict Credential Isolation: Stored in isolated ACL file (0600). Raw secrets are NEVER exposed in reports or LLM prompts.</span>
+                      </div>
+                      <span className="font-mono text-emerald-400">Deterministic Guard Active</span>
+                    </div>
+                  </div>
+                )}
+
+                {/* SUB-PANEL 2: HAR IMPORT */}
+                {idorSubTab === 'har' && (
+                  <div className="p-6 rounded-2xl bg-slate-900/60 border border-slate-800 space-y-4 max-w-2xl mx-auto">
+                    <div>
+                      <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                        <UploadCloud className="w-4 h-4 text-cyan-400" />
+                        Import Researcher-Provided HAR Capture
+                      </h3>
+                      <p className="text-xs text-slate-400 mt-1">
+                        Upload HTTP Archive (.har) captures from your browser or proxy. Out-of-scope transactions are filtered immediately, credentials are redacted, and endpoints and object candidates are safely extracted.
+                      </p>
+                    </div>
+
+                    {harNotice && (
+                      <div className={`p-3 rounded-xl border text-xs font-mono flex items-center gap-2 ${
+                        harNotice.type === 'success' ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300' : 'bg-red-500/10 border-red-500/30 text-red-300'
+                      }`}>
+                        <CheckCircle2 className="w-4 h-4" />
+                        <span>{harNotice.msg}</span>
+                      </div>
+                    )}
+
+                    <form onSubmit={handleHARUploadSubmit} className="space-y-4">
+                      <div className="grid grid-cols-2 gap-3 text-xs">
+                        <div>
+                          <label className="text-[11px] text-slate-400 font-mono">Owner Principal</label>
+                          <input
+                            type="text"
+                            value={harOwner}
+                            onChange={e => setHarOwner(e.target.value)}
+                            className="w-full mt-1 bg-slate-950 border border-slate-800 rounded-lg p-2 text-slate-200 font-mono focus:outline-none focus:border-cyan-500"
+                          />
+                        </div>
+                        <div>
+                          <label className="text-[11px] text-slate-400 font-mono">Tenant Label</label>
+                          <input
+                            type="text"
+                            value={harTenant}
+                            onChange={e => setHarTenant(e.target.value)}
+                            className="w-full mt-1 bg-slate-950 border border-slate-800 rounded-lg p-2 text-slate-200 font-mono focus:outline-none focus:border-cyan-500"
+                          />
+                        </div>
+                      </div>
+
+                      <div className="border-2 border-dashed border-slate-800 hover:border-cyan-500/50 rounded-2xl p-6 text-center bg-slate-950/50 transition">
+                        <input
+                          type="file"
+                          accept=".har"
+                          id="har-file-input"
+                          className="hidden"
+                          onChange={e => {
+                            if (e.target.files && e.target.files[0]) {
+                              setHarFile(e.target.files[0]);
+                            }
+                          }}
+                        />
+                        <label htmlFor="har-file-input" className="cursor-pointer space-y-2 flex flex-col items-center">
+                          <UploadCloud className="w-8 h-8 text-cyan-400" />
+                          <span className="text-xs font-bold text-slate-200">
+                            {harFile ? harFile.name : 'Choose HAR file or drag and drop'}
+                          </span>
+                          <span className="text-[11px] text-slate-500">Maximum allowed file size: 10 MB</span>
+                        </label>
+                      </div>
+
+                      <button
+                        type="submit"
+                        disabled={harUploading || !harFile}
+                        className={`w-full py-2.5 rounded-xl text-xs font-bold transition flex items-center justify-center gap-2 cursor-pointer ${
+                          harUploading || !harFile 
+                            ? 'bg-slate-800 text-slate-500 cursor-not-allowed' 
+                            : 'bg-cyan-600 hover:bg-cyan-500 text-white shadow-lg shadow-cyan-500/25'
+                        }`}
+                      >
+                        <UploadCloud className="w-4 h-4" />
+                        <span>{harUploading ? 'Ingesting and redacting...' : 'Upload and Ingest HAR'}</span>
+                      </button>
+                    </form>
+                  </div>
+                )}
+
+                {/* SUB-PANEL 3: CANDIDATES */}
+                {idorSubTab === 'candidates' && (
+                  <div className="space-y-4">
+                    {/* Actions bar */}
+                    <div className="flex flex-wrap items-center justify-between gap-3 p-4 rounded-xl bg-slate-900/60 border border-slate-800">
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={handleBuildIDORInventory}
+                          disabled={buildingInventory}
+                          className="px-3.5 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-cyan-300 font-semibold text-xs border border-slate-700 transition cursor-pointer flex items-center gap-1.5"
+                        >
+                          <RefreshCw className={`w-3.5 h-3.5 ${buildingInventory ? 'animate-spin' : ''}`} />
+                          <span>Extract Candidates from Endpoints</span>
+                        </button>
+                        <span className="text-xs text-slate-500">({idorCandidates.length} candidate references identified)</span>
+                      </div>
+
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="text"
+                          placeholder="Filter by object ID or route..."
+                          value={candidateFilter}
+                          onChange={e => setCandidateFilter(e.target.value)}
+                          className="bg-slate-950 border border-slate-800 rounded-lg px-3 py-1.5 text-xs text-slate-200 font-mono focus:outline-none focus:border-cyan-500"
+                        />
+                      </div>
+                    </div>
+
+                    {/* Candidates Table */}
+                    <div className="rounded-xl border border-slate-800 bg-slate-900/50 overflow-hidden shadow-lg">
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-left text-xs border-collapse">
+                          <thead>
+                            <tr className="border-b border-slate-800 bg-slate-900/90 text-slate-400 uppercase font-mono text-[11px]">
+                              <th className="py-3 px-4">Location</th>
+                              <th className="py-3 px-4">Parameter Name</th>
+                              <th className="py-3 px-4">Object Identifier</th>
+                              <th className="py-3 px-4">Route Template</th>
+                              <th className="py-3 px-4">Owner Context</th>
+                              <th className="py-3 px-4">Access Policy</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-800/60 font-mono">
+                            {filteredCandidates.length === 0 ? (
+                              <tr>
+                                <td colSpan={6} className="py-12 text-center text-slate-500 font-sans italic">
+                                  No candidate object references found. Click "Extract Candidates from Endpoints" or import a HAR capture.
+                                </td>
+                              </tr>
+                            ) : (
+                              filteredCandidates.map((cand, idx) => (
+                                <tr key={idx} className="hover:bg-slate-800/40 transition">
+                                  <td className="py-3 px-4">
+                                    <span className="px-2 py-0.5 rounded bg-blue-500/10 text-blue-300 border border-blue-500/20 text-[10px] uppercase">
+                                      {cand.location}
+                                    </span>
+                                  </td>
+                                  <td className="py-3 px-4 text-cyan-300">{cand.param_name}</td>
+                                  <td className="py-3 px-4 font-bold text-white">{cand.object_id}</td>
+                                  <td className="py-3 px-4 text-slate-300">{cand.route_template}</td>
+                                  <td className="py-3 px-4 text-slate-400">{cand.owner_principal || 'user_a'}</td>
+                                  <td className="py-3 px-4">
+                                    <select
+                                      value={cand.access_policy || 'private'}
+                                      onChange={e => handleUpdateCandidatePolicy(cand.id, e.target.value)}
+                                      className="bg-slate-950 border border-slate-800 rounded px-2 py-1 text-xs text-slate-300 font-mono focus:outline-none focus:border-cyan-500 cursor-pointer"
+                                    >
+                                      <option value="private">private (owner only)</option>
+                                      <option value="tenant_shared">tenant_shared</option>
+                                      <option value="explicitly_shared">explicitly_shared</option>
+                                      <option value="public">public</option>
+                                      <option value="unknown">unknown (needs review)</option>
+                                    </select>
+                                  </td>
+                                </tr>
+                              ))
+                            )}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* SUB-PANEL 4: MATRIX & FINDINGS */}
+                {idorSubTab === 'matrix' && (
+                  <div className="space-y-4">
+                    {/* Top Summary Banner */}
+                    <div className="flex flex-wrap items-center justify-between gap-4 p-4 rounded-xl bg-slate-900/60 border border-slate-800">
+                      <div className="flex flex-wrap gap-2 text-xs font-mono">
+                        <span className="px-2.5 py-1 rounded-lg bg-red-500/15 text-red-300 border border-red-500/30 font-bold">
+                          {idorComparisons.filter(c => c.status === 'Confirmed' || c.status === 'CrossTenant' || c.status === 'CrossInstance').length} Confirmed IDOR
+                        </span>
+                        <span className="px-2.5 py-1 rounded-lg bg-orange-500/15 text-orange-300 border border-orange-500/30">
+                          {idorComparisons.filter(c => c.status === 'UnauthorizedRole').length} Unauthorized Role
+                        </span>
+                        <span className="px-2.5 py-1 rounded-lg bg-amber-500/15 text-amber-300 border border-amber-500/30">
+                          {idorComparisons.filter(c => c.status === 'NeedsReview').length} Needs Review
+                        </span>
+                        <span className="px-2.5 py-1 rounded-lg bg-blue-500/15 text-blue-300 border border-blue-500/30">
+                          {idorComparisons.filter(c => c.status === 'AuthorizedShare').length} Authorized Share
+                        </span>
+                      </div>
+
+                      <a
+                        href={`/api/runs/${selectedRunId}/idor/report`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="px-3.5 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold border border-slate-700 transition flex items-center gap-1.5"
+                      >
+                        <Download className="w-3.5 h-3.5 text-cyan-400" />
+                        <span>Download IDOR Report (.md)</span>
+                      </a>
+                    </div>
+
+                    {/* Matrix Table */}
+                    <div className="rounded-xl border border-slate-800 bg-slate-900/50 overflow-hidden shadow-lg">
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-left text-xs border-collapse">
+                          <thead>
+                            <tr className="border-b border-slate-800 bg-slate-900/90 text-slate-400 uppercase font-mono text-[11px]">
+                              <th className="py-3 px-4">Candidate Route</th>
+                              <th className="py-3 px-4">Object ID</th>
+                              <th className="py-3 px-4 text-center">Owner (A)</th>
+                              <th className="py-3 px-4 text-center">Tester (B)</th>
+                              <th className="py-3 px-4 text-center">Anon</th>
+                              <th className="py-3 px-4">Boundary Level</th>
+                              <th className="py-3 px-4">Verdict</th>
+                              <th className="py-3 px-4 text-right">Evidence</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-800/60 font-mono">
+                            {idorComparisons.length === 0 ? (
+                              <tr>
+                                <td colSpan={8} className="py-12 text-center text-slate-500 font-sans italic">
+                                  No differential test comparisons recorded yet. Click "Run Differential Testing" to test candidate objects.
+                                </td>
+                              </tr>
+                            ) : (
+                              idorComparisons.map((comp, idx) => {
+                                const isConfirmed = comp.status === 'Confirmed' || comp.status === 'CrossTenant' || comp.status === 'CrossInstance';
+                                const isUnauthRole = comp.status === 'UnauthorizedRole';
+                                return (
+                                  <tr key={idx} className={`hover:bg-slate-800/40 transition ${isConfirmed ? 'bg-red-500/5' : ''}`}>
+                                    <td className="py-3 px-4 font-bold text-slate-200">{comp.candidate?.route_template || comp.request_url}</td>
+                                    <td className="py-3 px-4 text-cyan-300 font-bold">{comp.candidate?.object_id}</td>
+                                    <td className="py-3 px-4 text-center">
+                                      <span className="px-2 py-0.5 rounded bg-emerald-500/15 text-emerald-400 border border-emerald-500/25">
+                                        {comp.owner_status} OK
+                                      </span>
+                                    </td>
+                                    <td className="py-3 px-4 text-center">
+                                      <span className={`px-2 py-0.5 rounded font-bold ${
+                                        comp.tester_status === 200 && isConfirmed ? 'bg-red-500/20 text-red-400 border border-red-500/40 animate-pulse' :
+                                        comp.tester_status === 200 ? 'bg-amber-500/15 text-amber-300 border border-amber-500/25' :
+                                        'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
+                                      }`}>
+                                        {comp.tester_status}
+                                      </span>
+                                    </td>
+                                    <td className="py-3 px-4 text-center text-slate-400">
+                                      {comp.anon_status}
+                                    </td>
+                                    <td className="py-3 px-4">
+                                      <span className={`px-2 py-0.5 rounded text-[10px] uppercase ${
+                                        comp.boundary === 'cross_instance' ? 'bg-purple-500/15 text-purple-300 border border-purple-500/30' :
+                                        comp.boundary === 'cross_tenant' ? 'bg-red-500/15 text-red-300 border border-red-500/30' :
+                                        'bg-slate-800 text-slate-400'
+                                      }`}>
+                                        {comp.boundary}
+                                      </span>
+                                    </td>
+                                    <td className="py-3 px-4">
+                                      <span className={`px-2.5 py-1 rounded-md text-[11px] font-bold ${
+                                        isConfirmed ? 'bg-red-500/20 text-red-300 border border-red-500/40' :
+                                        isUnauthRole ? 'bg-orange-500/20 text-orange-300 border border-orange-500/40' :
+                                        comp.status === 'AuthorizedShare' ? 'bg-blue-500/15 text-blue-300 border border-blue-500/30' :
+                                        'bg-slate-800 text-slate-400'
+                                      }`}>
+                                        {comp.status}
+                                      </span>
+                                    </td>
+                                    <td className="py-3 px-4 text-right">
+                                      <button
+                                        onClick={() => setActiveEvidenceComp(comp)}
+                                        className="px-2.5 py-1 rounded-lg bg-cyan-500/15 hover:bg-cyan-500/25 border border-cyan-500/30 text-cyan-300 text-xs font-semibold transition cursor-pointer"
+                                      >
+                                        View Evidence
+                                      </button>
+                                    </td>
+                                  </tr>
+                                );
+                              })
+                            )}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* RCE RESEARCH CENTER TAB */}
+            {activeTab === 'rce' && (
+              <div className="space-y-6">
+                {/* Header Banner */}
+                <div className="p-6 rounded-2xl bg-gradient-to-r from-[#0d1627] via-[#120f26] to-[#0d1627] border border-purple-500/25 shadow-xl space-y-3">
+                  <div className="flex flex-wrap items-center justify-between gap-4">
+                    <div className="flex items-center gap-3">
+                      <div className="p-3 rounded-2xl bg-gradient-to-tr from-purple-600 to-indigo-600 text-white shadow-lg shadow-purple-500/25">
+                        <Terminal className="w-6 h-6" />
+                      </div>
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <h2 className="text-xl font-extrabold text-white tracking-tight">RCE Research Center</h2>
+                          <span className="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-purple-500/20 text-purple-300 border border-purple-500/40">
+                            PHASE 4 ENGINE
+                          </span>
+                        </div>
+                        <p className="text-xs text-slate-400 mt-0.5">
+                          Application-aware Remote Code Execution attack surface discovery, multi-step chains, advisory reachability & 3-profile validation
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="flex flex-wrap items-center gap-2">
+                      <button
+                        onClick={handleDiscoverRCE}
+                        disabled={rceDiscovering}
+                        className="px-4 py-2 rounded-xl bg-purple-600 hover:bg-purple-500 text-white font-bold text-xs shadow-lg shadow-purple-600/25 hover:shadow-purple-600/40 transition cursor-pointer flex items-center gap-2 disabled:opacity-50"
+                      >
+                        <Sparkles className={`w-3.5 h-3.5 ${rceDiscovering ? 'animate-spin' : ''}`} />
+                        <span>{rceDiscovering ? 'Analyzing Sinks...' : 'Discover RCE Attack Surfaces'}</span>
+                      </button>
+
+                      <button
+                        onClick={handleExportRCEReport}
+                        className="px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold text-xs border border-slate-700 transition cursor-pointer flex items-center gap-1.5"
+                        title="Download Markdown research report"
+                      >
+                        <Download className="w-3.5 h-3.5 text-slate-400" />
+                        <span>Export Report (.md)</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Safety & Scope Assurance Banner */}
+                  <div className="flex flex-wrap items-center gap-3 text-xs pt-1 border-t border-purple-500/15">
+                    <span className="text-slate-400 flex items-center gap-1">
+                      <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+                      <span>ScopedTransport Enforced</span>
+                    </span>
+                    <span className="text-slate-500">•</span>
+                    <span className="text-slate-400 flex items-center gap-1">
+                      <Shield className="w-3.5 h-3.5 text-cyan-400" />
+                      <span>Non-Destructive Probes Only ($&#123;7*7&#125;)</span>
+                    </span>
+                    <span className="text-slate-500">•</span>
+                    <span className="text-slate-400 flex items-center gap-1">
+                      <Activity className="w-3.5 h-3.5 text-purple-400" />
+                      <span>Negative Controls & Reflection Excluded</span>
+                    </span>
+                  </div>
+                </div>
+
+                {/* Notice banner */}
+                {rceNotice && (
+                  <div className={`p-4 rounded-xl border flex items-center justify-between text-xs animate-in fade-in duration-200 ${
+                    rceNotice.type === 'error' ? 'bg-red-500/10 border-red-500/30 text-red-300' : 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300'
+                  }`}>
+                    <div className="flex items-center gap-2">
+                      {rceNotice.type === 'error' ? <AlertTriangle className="w-4 h-4 text-red-400" /> : <CheckCircle2 className="w-4 h-4 text-emerald-400" />}
+                      <span>{rceNotice.msg}</span>
+                    </div>
+                    <button onClick={() => setRceNotice(null)} className="text-slate-400 hover:text-white cursor-pointer">
+                      <X className="w-4 h-4" />
+                    </button>
+                  </div>
+                )}
+
+                {/* Sub-tab Navigation */}
+                <div className="flex flex-wrap gap-2 border-b border-slate-800 pb-2 text-xs font-semibold">
+                  {[
+                    { id: 'overview', label: '1. Overview & Sinks', icon: Activity },
+                    { id: 'explorer', label: '2. Attack Surface Explorer', icon: Layers, count: filteredRceCandidates.length },
+                    { id: 'queue', label: '3. Candidate Prioritization Queue', icon: Sliders, count: rceCandidates.length },
+                    { id: 'advisories', label: '4. Advisory Intelligence (CVEs)', icon: BookOpen, count: rceAdvisories.length },
+                    { id: 'validation', label: '5. Validation Center', icon: Shield }
+                  ].map(tab => {
+                    const TabIcon = tab.icon;
+                    const active = rceSubTab === tab.id;
+                    return (
+                      <button
+                        key={tab.id}
+                        onClick={() => setRceSubTab(tab.id)}
+                        className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl transition cursor-pointer ${
+                          active
+                            ? 'bg-purple-600 text-white shadow-md shadow-purple-600/20'
+                            : 'bg-slate-900/60 hover:bg-slate-800 text-slate-400 hover:text-slate-200 border border-slate-800'
+                        }`}
+                      >
+                        <TabIcon className="w-3.5 h-3.5" />
+                        <span>{tab.label}</span>
+                        {tab.count !== undefined && tab.count > 0 && (
+                          <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-mono ${
+                            active ? 'bg-purple-800 text-purple-200' : 'bg-slate-800 text-slate-400'
+                          }`}>
+                            {tab.count}
+                          </span>
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+
+                {/* SUB-TAB 1: OVERVIEW & SINKS */}
+                {rceSubTab === 'overview' && (
+                  <div className="space-y-6">
+                    {/* Primary KPI Metrics */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3.5">
+                      <div className="p-4 rounded-2xl bg-gradient-to-br from-purple-950/40 via-slate-900/90 to-slate-950 border border-purple-500/30 shadow-lg">
+                        <span className="text-[10px] text-purple-300 uppercase font-bold tracking-wider">Total Attack Surfaces</span>
+                        <div className="text-2xl font-black font-mono text-purple-300 mt-1">
+                          {rceOverview?.total_candidates ?? rceCandidates.length}
+                        </div>
+                        <span className="text-[10px] text-slate-500">Classified endpoints</span>
+                      </div>
+
+                      <div className="p-4 rounded-2xl bg-gradient-to-br from-red-950/40 via-slate-900/90 to-slate-950 border border-red-500/30 shadow-lg">
+                        <span className="text-[10px] text-red-300 uppercase font-bold tracking-wider">High Priority Targets</span>
+                        <div className="text-2xl font-black font-mono text-red-400 mt-1">
+                          {rceOverview?.high_priority_count ?? 0}
+                        </div>
+                        <span className="text-[10px] text-slate-500">Score &ge; 75 / 100</span>
+                      </div>
+
+                      <div className="p-4 rounded-2xl bg-gradient-to-br from-cyan-950/40 via-slate-900/90 to-slate-950 border border-cyan-500/30 shadow-lg">
+                        <span className="text-[10px] text-cyan-300 uppercase font-bold tracking-wider">Multi-Step Chains</span>
+                        <div className="text-2xl font-black font-mono text-cyan-300 mt-1">
+                          {rceOverview?.active_chains_count ?? 0}
+                        </div>
+                        <span className="text-[10px] text-slate-500">Correlated pipelines</span>
+                      </div>
+
+                      <div className="p-4 rounded-2xl bg-gradient-to-br from-blue-950/40 via-slate-900/90 to-slate-950 border border-blue-500/30 shadow-lg">
+                        <span className="text-[10px] text-blue-300 uppercase font-bold tracking-wider">Advisories Matched</span>
+                        <div className="text-2xl font-black font-mono text-blue-300 mt-1">
+                          {rceOverview?.advisory_match_count ?? rceOverview?.advisories_matched ?? 0}
+                        </div>
+                        <span className="text-[10px] text-slate-500">Public CVE correlations</span>
+                      </div>
+
+                      <div className="p-4 rounded-2xl bg-gradient-to-br from-emerald-950/40 via-slate-900/90 to-slate-950 border border-emerald-500/30 shadow-lg">
+                        <span className="text-[10px] text-emerald-300 uppercase font-bold tracking-wider">Verified RCE Findings</span>
+                        <div className="text-2xl font-black font-mono text-emerald-400 mt-1">
+                          {rceOverview?.validated_count ?? rceOverview?.verified_rce_count ?? 0}
+                        </div>
+                        <span className="text-[10px] text-slate-500">Gate confirmed</span>
+                      </div>
+                    </div>
+
+                    {/* Sinks & Attack Surface Categories Grid */}
+                    <div className="space-y-3">
+                      <div className="flex items-center justify-between">
+                        <h3 className="text-sm font-bold text-white uppercase tracking-wider flex items-center gap-2">
+                          <Flame className="w-4 h-4 text-purple-400" />
+                          <span>Execution Sink Classification</span>
+                        </h3>
+                        <span className="text-xs text-slate-400">6 sink vectors analyzed deterministically</span>
+                      </div>
+
+                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3.5">
+                        {Object.entries(RCE_CATEGORY_CONFIG).map(([catKey, cfg]) => {
+                          const IconComp = cfg.icon;
+                          const count = rceOverview?.category_distribution?.[catKey] ?? rceOverview?.by_category?.[catKey] ?? rceCandidates.filter(c => c.category === catKey).length;
+                          return (
+                            <div key={catKey} className={`p-4 rounded-2xl ${cfg.bg} border ${cfg.border} flex flex-col justify-between space-y-3 shadow-md hover:scale-[1.01] transition`}>
+                              <div className="space-y-1.5">
+                                <div className="flex items-center justify-between">
+                                  <div className="flex items-center gap-2">
+                                    <div className={`p-2 rounded-xl bg-slate-950/70 ${cfg.text}`}>
+                                      <IconComp className="w-4 h-4" />
+                                    </div>
+                                    <h4 className="text-xs font-bold text-white">{cfg.label}</h4>
+                                  </div>
+                                  <span className={`px-2 py-0.5 rounded text-xs font-mono font-bold ${cfg.badge}`}>
+                                    {count}
+                                  </span>
+                                </div>
+                                <p className="text-[11px] text-slate-400 leading-relaxed font-sans">{cfg.description}</p>
+                              </div>
+
+                              <button
+                                onClick={() => {
+                                  setRceCategoryFilter(catKey);
+                                  setRceSubTab('explorer');
+                                }}
+                                className="w-full py-1.5 px-3 rounded-lg bg-slate-900/80 hover:bg-slate-800 text-slate-300 hover:text-white border border-slate-700/60 text-[11px] font-semibold transition cursor-pointer flex items-center justify-center gap-1.5"
+                              >
+                                <span>Filter in Explorer</span>
+                                <ChevronRight className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    {/* Top Ranked Candidates Preview */}
+                    <div className="p-5 rounded-2xl bg-slate-900/60 border border-slate-800 space-y-3">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <h3 className="text-sm font-bold text-white">Top Priority RCE Candidates</h3>
+                          <p className="text-xs text-slate-400">Ranked by transparent multidimensional risk scoring</p>
+                        </div>
+                        <button
+                          onClick={() => setRceSubTab('queue')}
+                          className="text-xs text-purple-400 hover:text-purple-300 flex items-center gap-1 font-semibold cursor-pointer"
+                        >
+                          <span>View Full Queue ({rceCandidates.length})</span>
+                          <ChevronRight className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+
+                      {rceCandidates.length === 0 ? (
+                        <div className="p-8 text-center text-slate-500 italic text-xs">
+                          No RCE candidates discovered yet. Click "Discover RCE Attack Surfaces" above to scan endpoints.
+                        </div>
+                      ) : (
+                        <div className="divide-y divide-slate-800/80">
+                          {rceCandidates.slice(0, 5).map((cand, idx) => {
+                            const catCfg = RCE_CATEGORY_CONFIG[cand.category] || { label: cand.category, badge: 'bg-slate-800 text-slate-300' };
+                            return (
+                              <div key={idx} className="py-3 flex flex-wrap items-center justify-between gap-3 text-xs">
+                                <div className="flex items-center gap-3">
+                                  <span className={`px-2.5 py-1 rounded-lg text-xs font-mono font-black ${
+                                    cand.priority_score >= 80 ? 'bg-red-500/20 text-red-300 border border-red-500/40' :
+                                    cand.priority_score >= 60 ? 'bg-orange-500/20 text-orange-300 border border-orange-500/40' :
+                                    'bg-amber-500/20 text-amber-300 border border-amber-500/40'
+                                  }`}>
+                                    {cand.priority_score}
+                                  </span>
+                                  <div>
+                                    <div className="flex items-center gap-2">
+                                      <span className="font-mono font-bold text-white">{cand.method} {cand.route}</span>
+                                      <span className={`px-2 py-0.5 rounded text-[10px] uppercase font-mono ${catCfg.badge}`}>
+                                        {catCfg.label}
+                                      </span>
+                                    </div>
+                                    <p className="text-[11px] text-slate-400 font-sans mt-0.5">{cand.hypothesis}</p>
+                                  </div>
+                                </div>
+
+                                <div className="flex items-center gap-2">
+                                  <button
+                                    onClick={() => {
+                                      setSelectedRceCandidate(cand);
+                                      setRceSubTab('queue');
+                                    }}
+                                    className="px-3 py-1.5 rounded-lg bg-purple-500/15 hover:bg-purple-500/25 border border-purple-500/30 text-purple-300 text-xs font-semibold transition cursor-pointer"
+                                  >
+                                    Investigate
+                                  </button>
+                                  <button
+                                    onClick={() => setRceValidationModalCand(cand)}
+                                    className="px-3 py-1.5 rounded-lg bg-cyan-500/15 hover:bg-cyan-500/25 border border-cyan-500/30 text-cyan-300 text-xs font-semibold transition cursor-pointer"
+                                  >
+                                    Validate
+                                  </button>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {/* SUB-TAB 2: ATTACK SURFACE EXPLORER */}
+                {rceSubTab === 'explorer' && (
+                  <div className="space-y-4">
+                    {/* Filters Toolbar */}
+                    <div className="flex flex-wrap items-center justify-between gap-3 p-4 rounded-xl bg-slate-900/60 border border-slate-800">
+                      <div className="flex flex-wrap items-center gap-2.5 flex-1 min-w-[280px]">
+                        <div className="relative flex-1 min-w-[200px]">
+                          <Search className="w-4 h-4 text-slate-500 absolute left-3 top-2.5" />
+                          <input
+                            type="text"
+                            placeholder="Filter by route, URL, sink, hypothesis..."
+                            value={rceSearchFilter}
+                            onChange={e => setRceSearchFilter(e.target.value)}
+                            className="w-full bg-slate-950 border border-slate-800 rounded-lg pl-9 pr-3 py-1.5 text-xs text-slate-200 font-mono focus:outline-none focus:border-purple-500"
+                          />
+                        </div>
+
+                        <select
+                          value={rceCategoryFilter}
+                          onChange={e => setRceCategoryFilter(e.target.value)}
+                          className="bg-slate-950 border border-slate-800 rounded-lg px-3 py-1.5 text-xs text-slate-300 focus:outline-none focus:border-purple-500 cursor-pointer"
+                        >
+                          <option value="ALL">All Categories</option>
+                          <option value="file_processing">File Processing</option>
+                          <option value="ssti">Template Injection (SSTI)</option>
+                          <option value="command_injection">Command Injection</option>
+                          <option value="deserialization">Deserialization</option>
+                          <option value="expression_language">Expression Language</option>
+                          <option value="background_jobs">Background Jobs</option>
+                        </select>
+
+                        <select
+                          value={rceStatusFilter}
+                          onChange={e => setRceStatusFilter(e.target.value)}
+                          className="bg-slate-950 border border-slate-800 rounded-lg px-3 py-1.5 text-xs text-slate-300 focus:outline-none focus:border-purple-500 cursor-pointer"
+                        >
+                          <option value="ALL">All Statuses</option>
+                          <option value="candidate">Candidate</option>
+                          <option value="verified">Verified</option>
+                          <option value="needs_review">Needs Review</option>
+                          <option value="suppressed">Suppressed</option>
+                        </select>
+                      </div>
+
+                      {(rceCategoryFilter !== 'ALL' || rceStatusFilter !== 'ALL' || rceSearchFilter) && (
+                        <button
+                          onClick={() => {
+                            setRceCategoryFilter('ALL');
+                            setRceStatusFilter('ALL');
+                            setRceSearchFilter('');
+                          }}
+                          className="text-xs text-slate-400 hover:text-white px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 transition cursor-pointer"
+                        >
+                          Reset Filters
+                        </button>
+                      )}
+                    </div>
+
+                    {/* Candidates Table */}
+                    <div className="rounded-xl border border-slate-800 bg-slate-900/50 overflow-hidden shadow-lg">
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-left text-xs border-collapse">
+                          <thead>
+                            <tr className="border-b border-slate-800 bg-slate-900/90 text-slate-400 uppercase font-mono text-[11px]">
+                              <th className="py-3 px-4">Score</th>
+                              <th className="py-3 px-4">Category</th>
+                              <th className="py-3 px-4">Method & Route</th>
+                              <th className="py-3 px-4">Suspected Sink / Vector</th>
+                              <th className="py-3 px-4">Chain Status</th>
+                              <th className="py-3 px-4">Status</th>
+                              <th className="py-3 px-4 text-right">Actions</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-800/60 font-mono">
+                            {filteredRceCandidates.length === 0 ? (
+                              <tr>
+                                <td colSpan={7} className="py-12 text-center text-slate-500 font-sans italic">
+                                  No RCE candidates match the current filters. Click "Discover RCE Attack Surfaces" or reset your search filters.
+                                </td>
+                              </tr>
+                            ) : (
+                              filteredRceCandidates.map((cand, idx) => {
+                                const catCfg = RCE_CATEGORY_CONFIG[cand.category] || { label: cand.category, badge: 'bg-slate-800 text-slate-300' };
+                                const isVerified = cand.status === 'verified';
+                                return (
+                                  <tr key={idx} className={`hover:bg-slate-800/40 transition ${isVerified ? 'bg-emerald-500/5' : ''}`}>
+                                    <td className="py-3 px-4">
+                                      <span className={`px-2 py-0.5 rounded text-xs font-mono font-bold ${
+                                        cand.priority_score >= 80 ? 'bg-red-500/20 text-red-300 border border-red-500/40' :
+                                        cand.priority_score >= 60 ? 'bg-orange-500/20 text-orange-300 border border-orange-500/40' :
+                                        'bg-amber-500/20 text-amber-300 border border-amber-500/40'
+                                      }`}>
+                                        {cand.priority_score}
+                                      </span>
+                                    </td>
+                                    <td className="py-3 px-4">
+                                      <span className={`px-2 py-0.5 rounded text-[10px] uppercase font-mono ${catCfg.badge}`}>
+                                        {catCfg.label}
+                                      </span>
+                                    </td>
+                                    <td className="py-3 px-4">
+                                      <div className="font-bold text-white">{cand.method} {cand.route}</div>
+                                      <div className="text-[10px] text-slate-500 font-sans break-all">{cand.target_url}</div>
+                                    </td>
+                                    <td className="py-3 px-4 font-sans text-slate-300 max-w-xs truncate" title={cand.suspected_sink}>
+                                      {cand.suspected_sink}
+                                    </td>
+                                    <td className="py-3 px-4">
+                                      {cand.chain_id ? (
+                                        <span className="px-2 py-0.5 rounded text-[10px] bg-cyan-500/15 text-cyan-300 border border-cyan-500/30">
+                                          Chain: {cand.chain_id}
+                                        </span>
+                                      ) : (
+                                        <span className="text-slate-600 font-sans text-[11px]">—</span>
+                                      )}
+                                    </td>
+                                    <td className="py-3 px-4">
+                                      <span className={`px-2 py-0.5 rounded text-[10px] uppercase font-bold ${
+                                        cand.status === 'verified' ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40' :
+                                        cand.status === 'needs_review' ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40' :
+                                        cand.status === 'suppressed' ? 'bg-slate-800 text-slate-400' :
+                                        'bg-purple-500/20 text-purple-300 border border-purple-500/30'
+                                      }`}>
+                                        {cand.status}
+                                      </span>
+                                    </td>
+                                    <td className="py-3 px-4 text-right space-x-1.5 whitespace-nowrap">
+                                      <button
+                                        onClick={() => {
+                                          setSelectedRceCandidate(cand);
+                                          setRceSubTab('queue');
+                                        }}
+                                        className="px-2.5 py-1 rounded-lg bg-purple-500/15 hover:bg-purple-500/25 border border-purple-500/30 text-purple-300 text-xs font-semibold transition cursor-pointer"
+                                      >
+                                        Inspect
+                                      </button>
+                                      <button
+                                        onClick={() => setRceValidationModalCand(cand)}
+                                        className="px-2.5 py-1 rounded-lg bg-cyan-500/15 hover:bg-cyan-500/25 border border-cyan-500/30 text-cyan-300 text-xs font-semibold transition cursor-pointer"
+                                      >
+                                        Validate
+                                      </button>
+                                    </td>
+                                  </tr>
+                                );
+                              })
+                            )}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* SUB-TAB 3: CANDIDATE PRIORITIZATION QUEUE */}
+                {rceSubTab === 'queue' && (
+                  <div className="space-y-4">
+                    <div className="p-4 rounded-xl bg-slate-900/60 border border-slate-800 flex items-center justify-between">
+                      <div>
+                        <h3 className="text-sm font-bold text-white">RCE Prioritization Queue</h3>
+                        <p className="text-xs text-slate-400">
+                          Ranked by deterministic multi-variable score (Base Risk, Parameter Exposure, Auth Barrier, CVE Corroboration, Multi-Step Chain)
+                        </p>
+                      </div>
+                      <span className="text-xs font-mono text-purple-300 px-2.5 py-1 rounded-lg bg-purple-500/10 border border-purple-500/20">
+                        {rceCandidates.length} Candidates Enqueued
+                      </span>
+                    </div>
+
+                    {rceCandidates.length === 0 ? (
+                      <div className="p-12 text-center text-slate-500 italic text-xs border border-slate-800 rounded-xl bg-slate-900/30">
+                        No candidates in queue. Click "Discover RCE Attack Surfaces" to begin research.
+                      </div>
+                    ) : (
+                      <div className="space-y-4">
+                        {rceCandidates.map((cand) => {
+                          const catCfg = RCE_CATEGORY_CONFIG[cand.category] || { label: cand.category, badge: 'bg-slate-800 text-slate-300' };
+                          const isSelected = selectedRceCandidate?.id === cand.id;
+                          return (
+                            <div
+                              key={cand.id}
+                              className={`p-5 rounded-2xl border transition shadow-lg ${
+                                isSelected ? 'bg-slate-900/90 border-purple-500/60 ring-1 ring-purple-500/30' : 'bg-slate-900/60 border-slate-800 hover:border-slate-700'
+                              }`}
+                            >
+                              {/* Header */}
+                              <div className="flex flex-wrap items-start justify-between gap-3 border-b border-slate-800/80 pb-3">
+                                <div className="space-y-1">
+                                  <div className="flex flex-wrap items-center gap-2">
+                                    <span className="px-2 py-0.5 rounded text-[11px] font-mono font-bold bg-slate-800 text-white">
+                                      {cand.method}
+                                    </span>
+                                    <span className="text-sm font-mono font-bold text-white">{cand.route}</span>
+                                    <span className={`px-2 py-0.5 rounded text-[10px] uppercase font-mono ${catCfg.badge}`}>
+                                      {catCfg.label}
+                                    </span>
+                                    <span className="px-2 py-0.5 rounded text-[10px] font-mono text-slate-400 bg-slate-800">
+                                      Confidence: {cand.confidence}
+                                    </span>
+                                    <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase ${
+                                      cand.status === 'verified' ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40' :
+                                      cand.status === 'needs_review' ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40' :
+                                      'bg-slate-800 text-slate-400'
+                                    }`}>
+                                      {cand.status}
+                                    </span>
+                                  </div>
+                                  <div className="text-xs text-cyan-400 font-mono break-all">{cand.target_url}</div>
+                                </div>
+
+                                {/* Score Badge */}
+                                <div className="flex items-center gap-2">
+                                  <div className={`p-2.5 rounded-xl font-mono text-center border ${
+                                    cand.priority_score >= 80 ? 'bg-red-500/15 border-red-500/40 text-red-300' :
+                                    cand.priority_score >= 60 ? 'bg-orange-500/15 border-orange-500/40 text-orange-300' :
+                                    'bg-amber-500/15 border-amber-500/40 text-amber-300'
+                                  }`}>
+                                    <div className="text-[10px] uppercase font-bold tracking-wider">Priority Score</div>
+                                    <div className="text-xl font-black">{cand.priority_score} <span className="text-xs font-normal text-slate-400">/ 100</span></div>
+                                  </div>
+                                </div>
+                              </div>
+
+                              {/* Candidate Body */}
+                              <div className="mt-4 grid grid-cols-1 lg:grid-cols-2 gap-4 text-xs">
+                                {/* Left column: Hypothesis & Sink */}
+                                <div className="space-y-3">
+                                  <div>
+                                    <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">Research Hypothesis</span>
+                                    <div className="p-3 rounded-xl bg-slate-950 border border-slate-800 text-slate-200 mt-1 leading-relaxed font-sans">
+                                      {cand.hypothesis}
+                                    </div>
+                                  </div>
+
+                                  <div>
+                                    <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">Suspected Execution Sink</span>
+                                    <div className="p-2.5 rounded-xl bg-slate-950 border border-slate-800 text-amber-300 mt-1 font-mono text-[11px]">
+                                      {cand.suspected_sink}
+                                    </div>
+                                  </div>
+
+                                  {cand.parameters && cand.parameters.length > 0 && (
+                                    <div>
+                                      <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">Observed Parameters</span>
+                                      <div className="flex flex-wrap gap-1.5 mt-1">
+                                        {cand.parameters.map((p, i) => (
+                                          <span key={i} className="px-2 py-0.5 rounded bg-slate-800 text-cyan-300 border border-slate-700 font-mono text-[11px]">
+                                            {p}
+                                          </span>
+                                        ))}
+                                      </div>
+                                    </div>
+                                  )}
+
+                                  {/* Multi-step Chain Steps if chained */}
+                                  {cand.chain_steps && cand.chain_steps.length > 0 && (
+                                    <div className="p-3 rounded-xl bg-purple-950/20 border border-purple-500/30 space-y-2">
+                                      <span className="text-[10px] uppercase font-bold text-purple-300 tracking-wider flex items-center gap-1.5">
+                                        <Layers className="w-3.5 h-3.5" />
+                                        <span>Multi-Step Processing Chain Steps</span>
+                                      </span>
+                                      <div className="space-y-1.5">
+                                        {cand.chain_steps.map((st, i) => (
+                                          <div key={i} className="p-2 rounded bg-slate-950/80 border border-slate-800 text-[11px] font-mono flex items-center justify-between">
+                                            <span className="text-white font-bold">{st.step_type} ({st.method} {st.route})</span>
+                                            <span className="text-slate-400 font-sans">{st.description}</span>
+                                          </div>
+                                        ))}
+                                      </div>
+                                    </div>
+                                  )}
+
+                                  {/* Matched Advisories */}
+                                  {cand.matched_advisories && cand.matched_advisories.length > 0 && (
+                                    <div>
+                                      <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">Matched Public Advisories</span>
+                                      <div className="space-y-1.5 mt-1">
+                                        {cand.matched_advisories.map((adv, i) => (
+                                          <div key={i} className="p-2.5 rounded-xl bg-slate-950 border border-slate-800 flex items-center justify-between">
+                                            <div>
+                                              <span className="font-mono font-bold text-cyan-300">{adv.cve_id}</span>
+                                              <span className="text-slate-400 text-[11px] ml-2">({adv.product})</span>
+                                            </div>
+                                            <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                                              adv.tier === 'ComponentReachable' ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40' :
+                                              adv.tier === 'ComponentCorroborated' ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/40' :
+                                              'bg-slate-800 text-slate-300'
+                                            }`}>
+                                              {adv.tier}
+                                            </span>
+                                          </div>
+                                        ))}
+                                      </div>
+                                    </div>
+                                  )}
+                                </div>
+
+                                {/* Right column: Score breakdown & Notes editor */}
+                                <div className="space-y-3">
+                                  {/* Transparent Score Breakdown */}
+                                  <div className="p-3.5 rounded-xl bg-slate-950 border border-slate-800 space-y-2.5">
+                                    <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">
+                                      Deterministic Score Breakdown
+                                    </span>
+                                    {cand.score_breakdown && (
+                                      <div className="grid grid-cols-2 gap-2 text-[11px] font-mono">
+                                        <div className="p-2 rounded bg-slate-900 border border-slate-800">
+                                          <span className="text-slate-400 block text-[10px]">Base Sink Risk</span>
+                                          <span className="text-white font-bold">+{cand.score_breakdown.base_risk}</span>
+                                        </div>
+                                        <div className="p-2 rounded bg-slate-900 border border-slate-800">
+                                          <span className="text-slate-400 block text-[10px]">Input Exposure</span>
+                                          <span className="text-white font-bold">+{cand.score_breakdown.input_exposure}</span>
+                                        </div>
+                                        <div className="p-2 rounded bg-slate-900 border border-slate-800">
+                                          <span className="text-slate-400 block text-[10px]">Auth Barrier</span>
+                                          <span className="text-white font-bold">{cand.score_breakdown.auth_modifier}</span>
+                                        </div>
+                                        <div className="p-2 rounded bg-slate-900 border border-slate-800">
+                                          <span className="text-slate-400 block text-[10px]">Tech/CVE Modifier</span>
+                                          <span className="text-white font-bold">+{cand.score_breakdown.tech_cve_modifier}</span>
+                                        </div>
+                                      </div>
+                                    )}
+
+                                    {/* Explanations List */}
+                                    {cand.score_breakdown?.explanations && cand.score_breakdown.explanations.length > 0 && (
+                                      <div className="pt-2 border-t border-slate-800/80 space-y-1">
+                                        <span className="text-[10px] uppercase font-bold text-slate-500">Score Rationale</span>
+                                        <ul className="space-y-1 text-[11px] text-slate-300 font-sans">
+                                          {cand.score_breakdown.explanations.map((exp, i) => (
+                                            <li key={i} className="flex items-start gap-1.5">
+                                              <span className="text-purple-400 mt-0.5">•</span>
+                                              <span>{exp}</span>
+                                            </li>
+                                          ))}
+                                        </ul>
+                                      </div>
+                                    )}
+                                  </div>
+
+                                  {/* Notes & Status Editor */}
+                                  <div className="p-3.5 rounded-xl bg-slate-950 border border-slate-800 space-y-2">
+                                    <div className="flex items-center justify-between">
+                                      <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">Researcher Notes & Manual Gate</span>
+                                      <select
+                                        value={isSelected ? rceCandidateStatus : cand.status}
+                                        onChange={e => {
+                                          setSelectedRceCandidate(cand);
+                                          setRceCandidateStatus(e.target.value);
+                                        }}
+                                        className="bg-slate-900 border border-slate-700 rounded px-2 py-0.5 text-xs text-white cursor-pointer font-mono"
+                                      >
+                                        <option value="candidate">candidate</option>
+                                        <option value="needs_review">needs_review</option>
+                                        <option value="verified">verified</option>
+                                        <option value="suppressed">suppressed</option>
+                                      </select>
+                                    </div>
+
+                                    <textarea
+                                      rows={2}
+                                      value={isSelected ? rceCandidateNotes : (cand.notes || '')}
+                                      onFocus={() => {
+                                        setSelectedRceCandidate(cand);
+                                        setRceCandidateNotes(cand.notes || '');
+                                        setRceCandidateStatus(cand.status);
+                                      }}
+                                      onChange={e => setRceCandidateNotes(e.target.value)}
+                                      placeholder="Add research observations, curl reproduction notes, or sink verification details..."
+                                      className="w-full bg-slate-900 border border-slate-800 rounded-lg p-2 text-xs text-slate-200 placeholder-slate-600 focus:outline-none focus:border-purple-500"
+                                    />
+
+                                    {isSelected && (
+                                      <div className="flex justify-end">
+                                        <button
+                                          onClick={() => handleSaveCandidateNotes(cand.id)}
+                                          disabled={rceSavingNotes}
+                                          className="px-3 py-1 rounded-lg bg-purple-600 hover:bg-purple-500 text-white font-bold text-xs transition cursor-pointer"
+                                        >
+                                          {rceSavingNotes ? 'Saving...' : 'Save Notes & Status'}
+                                        </button>
+                                      </div>
+                                    )}
+                                  </div>
+
+                                  {/* Actions */}
+                                  <div className="flex items-center justify-end gap-2 pt-2">
+                                    {getLastAttempt(cand) && (
+                                      <button
+                                        onClick={() => setRceEvidenceModalCand(cand)}
+                                        className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 text-xs font-semibold transition cursor-pointer flex items-center gap-1.5"
+                                      >
+                                        <Eye className="w-3.5 h-3.5 text-slate-400" />
+                                        <span>View Evidence Bundle</span>
+                                      </button>
+                                    )}
+                                    <button
+                                      onClick={() => setRceValidationModalCand(cand)}
+                                      className="px-4 py-1.5 rounded-xl bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white font-bold text-xs shadow-md shadow-purple-600/20 transition cursor-pointer flex items-center gap-1.5"
+                                    >
+                                      <Shield className="w-3.5 h-3.5" />
+                                      <span>Launch 3-Profile Validation Gate</span>
+                                    </button>
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* SUB-TAB 4: ADVISORY INTELLIGENCE */}
+                {rceSubTab === 'advisories' && (
+                  <div className="space-y-4">
+                    <div className="p-4 rounded-xl bg-slate-900/60 border border-slate-800">
+                      <h3 className="text-sm font-bold text-white">Curated Public Vulnerability Advisory Intelligence</h3>
+                      <p className="text-xs text-slate-400 mt-0.5">
+                        Correlated against detected software components and endpoint routes. Evaluates reachability across 6 strict progression tiers.
+                      </p>
+                    </div>
+
+                    <div className="grid grid-cols-1 gap-4">
+                      {rceAdvisories.map((rawAdv, idx) => {
+                        const adv = rawAdv.advisory || rawAdv;
+                        const cveId = adv.id || adv.cve_id || `ADV-${idx}`;
+                        const name = adv.title || adv.name || cveId;
+                        const product = adv.affected_product || adv.product || '';
+                        const vulnRange = adv.vulnerable_range || '';
+                        const severity = (adv.severity || 'high').toLowerCase();
+                        const desc = adv.vuln_type || adv.description || '';
+                        const reachabilityNotes = adv.reachability_condition || adv.reachability_notes || rawAdv.reachable_route || 'Evaluated against detected software stack';
+                        const cvss = adv.cvss || (severity === 'critical' ? '9.8' : '8.5');
+
+                        const matchingCandidates = rceCandidates.filter(c =>
+                          c.matched_advisories?.some(a => a.cve_id === cveId) ||
+                          c.matching_advisories?.some(a => a.advisory?.id === cveId)
+                        );
+                        const tier = rawAdv.highest_tier || (matchingCandidates.length > 0
+                          ? matchingCandidates[0].matched_advisories?.find(a => a.cve_id === cveId)?.tier || 'ComponentReachable'
+                          : 'TechnologyCorrelated');
+                        const tierCfg = RCE_TIER_CONFIG[tier] || RCE_TIER_CONFIG.TechnologyCorrelated;
+
+                        return (
+                          <div key={cveId} className="p-5 rounded-2xl bg-slate-900/60 border border-slate-800 space-y-3">
+                            <div className="flex flex-wrap items-start justify-between gap-3">
+                              <div>
+                                <div className="flex items-center gap-2">
+                                  <span className="font-mono text-sm font-black text-cyan-300">{cveId}</span>
+                                  <span className="text-xs font-bold text-white">{name}</span>
+                                  <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase ${
+                                    severity === 'critical' ? 'bg-red-500/20 text-red-300 border border-red-500/40' : 'bg-orange-500/20 text-orange-300 border border-orange-500/40'
+                                  }`}>
+                                    {severity} (CVSS {cvss})
+                                  </span>
+                                </div>
+                                <div className="text-xs text-slate-400 font-mono mt-0.5">
+                                  Product: <span className="text-white font-semibold">{product}</span> • Vulnerable Range: <span className="text-amber-300 font-mono">{vulnRange}</span>
+                                </div>
+                              </div>
+
+                              <span className={`px-2.5 py-1 rounded-lg text-xs font-bold border ${tierCfg.bg} ${tierCfg.text} ${tierCfg.border}`}>
+                                {tierCfg.label}
+                              </span>
+                            </div>
+
+                            <p className="text-xs text-slate-300 leading-relaxed font-sans">{desc}</p>
+
+                            <div className="p-3 rounded-xl bg-slate-950 border border-slate-800 text-xs space-y-1">
+                              <span className="text-[10px] uppercase font-bold text-slate-500 tracking-wider block">Reachability Analysis</span>
+                              <p className="text-slate-300 font-sans">{reachabilityNotes}</p>
+                              {adv.affected_routes && adv.affected_routes.length > 0 && (
+                                <div className="pt-1.5 flex flex-wrap gap-1.5">
+                                  {adv.affected_routes.map((rt, i) => (
+                                    <span key={i} className="px-2 py-0.5 rounded bg-slate-900 text-cyan-300 font-mono text-[10px] border border-slate-800">
+                                      {rt}
+                                    </span>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                {/* SUB-TAB 5: VALIDATION CENTER */}
+                {rceSubTab === 'validation' && (
+                  <div className="space-y-6">
+                    {/* Validation Architecture Guidance */}
+                    <div className="p-5 rounded-2xl bg-gradient-to-r from-slate-900 to-slate-950 border border-slate-800 space-y-3">
+                      <h3 className="text-sm font-bold text-white uppercase tracking-wider flex items-center gap-2">
+                        <Shield className="w-4 h-4 text-emerald-400" />
+                        <span>Graduated 3-Profile Validation Architecture</span>
+                      </h3>
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-xs">
+                        <div className="p-3.5 rounded-xl bg-slate-950/80 border border-slate-800 space-y-1">
+                          <span className="font-bold text-cyan-300 block">Profile 1: Passive Analysis</span>
+                          <p className="text-slate-400 leading-relaxed font-sans">
+                            Dispatches zero network traffic. Inspects existing endpoint intelligence, server headers, and verified technology versions against advisories.
+                          </p>
+                        </div>
+                        <div className="p-3.5 rounded-xl bg-slate-950/80 border border-slate-800 space-y-1">
+                          <span className="font-bold text-purple-300 block">Profile 2: Safe Active Probing</span>
+                          <p className="text-slate-400 leading-relaxed font-sans">
+                            Sends non-destructive mathematical evaluation markers ($&#123;7*7&#125; &rarr; 49). Verifies negative controls ($&#123;7*8&#125;) and strictly rejects raw input reflection.
+                          </p>
+                        </div>
+                        <div className="p-3.5 rounded-xl bg-slate-950/80 border border-slate-800 space-y-1">
+                          <span className="font-bold text-amber-300 block">Profile 3: Manual Verification Plan</span>
+                          <p className="text-slate-400 leading-relaxed font-sans">
+                            Generates copy-paste curl commands with exact parameters and deterministic observation criteria for researcher-controlled terminal execution.
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Candidate Validation History Table */}
+                    <div className="rounded-xl border border-slate-800 bg-slate-900/50 overflow-hidden shadow-lg">
+                      <div className="p-4 border-b border-slate-800 flex items-center justify-between">
+                        <h4 className="text-xs font-bold text-white uppercase font-mono">Candidate Validation Status & Attempts</h4>
+                        <span className="text-xs text-slate-500 font-mono">{rceCandidates.length} Candidates</span>
+                      </div>
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-left text-xs border-collapse">
+                          <thead>
+                            <tr className="border-b border-slate-800 bg-slate-900/90 text-slate-400 uppercase font-mono text-[11px]">
+                              <th className="py-3 px-4">Candidate</th>
+                              <th className="py-3 px-4">Category</th>
+                              <th className="py-3 px-4">Route</th>
+                              <th className="py-3 px-4">Validation Profile</th>
+                              <th className="py-3 px-4">Verdict</th>
+                              <th className="py-3 px-4 text-right">Actions</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-800/60 font-mono">
+                            {rceCandidates.map((cand, idx) => (
+                              <tr key={idx} className="hover:bg-slate-800/40 transition">
+                                <td className="py-3 px-4 font-bold text-white">{cand.id}</td>
+                                <td className="py-3 px-4 text-purple-300">{cand.category}</td>
+                                <td className="py-3 px-4 text-slate-300">{cand.http_method || cand.method} {cand.route || cand.normalized_route}</td>
+                                <td className="py-3 px-4 text-slate-400">
+                                  {getLastAttempt(cand)?.profile || 'Not Validated'}
+                                </td>
+                                <td className="py-3 px-4">
+                                  <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase ${
+                                    (cand.validation_status || cand.status) === 'verified' ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40' :
+                                    (cand.validation_status || cand.status) === 'needs_review' ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40' :
+                                    (cand.validation_status || cand.status) === 'suppressed' ? 'bg-slate-800 text-slate-400' :
+                                    'bg-purple-500/15 text-purple-300 border border-purple-500/30'
+                                  }`}>
+                                    {cand.validation_status || cand.status}
+                                  </span>
+                                </td>
+                                <td className="py-3 px-4 text-right space-x-2">
+                                  {getLastAttempt(cand) && (
+                                    <button
+                                      onClick={() => setRceEvidenceModalCand(cand)}
+                                      className="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-cyan-300 border border-slate-700 text-xs font-semibold transition cursor-pointer"
+                                    >
+                                      Evidence
+                                    </button>
+                                  )}
+                                  <button
+                                    onClick={() => setRceValidationModalCand(cand)}
+                                    className="px-2.5 py-1 rounded-lg bg-purple-600 hover:bg-purple-500 text-white text-xs font-semibold transition cursor-pointer"
+                                  >
+                                    Validate
+                                  </button>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
           </>
         )}
       </main>
+
+      {/* ENDPOINT DETAIL DRAWER MODAL */}
+      {selectedEndpoint && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-md p-4 animate-in fade-in duration-200">
+          <div className="bg-[#0b101e] border border-slate-800 p-6 rounded-3xl w-full max-w-2xl max-h-[85vh] overflow-y-auto space-y-4 shadow-2xl">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+              <div className="flex items-center gap-2">
+                <Layers className="w-5 h-5 text-cyan-400" />
+                <h3 className="text-base font-bold text-white">Endpoint Intelligence Details</h3>
+              </div>
+              <button onClick={() => setSelectedEndpoint(null)} className="text-slate-400 hover:text-white cursor-pointer">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="space-y-3 text-xs font-mono">
+              <div>
+                <span className="text-slate-500 uppercase text-[10px]">Route Template</span>
+                <div className="text-white font-bold text-sm mt-0.5 p-2 rounded bg-slate-950 border border-slate-800">
+                  {selectedEndpoint.normalized_route || selectedEndpoint.url}
+                </div>
+              </div>
+
+              <div>
+                <span className="text-slate-500 uppercase text-[10px]">Canonical URL</span>
+                <div className="text-cyan-300 mt-0.5 p-2 rounded bg-slate-950 border border-slate-800 break-all">
+                  {selectedEndpoint.url}
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <span className="text-slate-500 uppercase text-[10px]">HTTP Methods</span>
+                  <div className="text-slate-200 mt-0.5 p-2 rounded bg-slate-950 border border-slate-800">
+                    {selectedEndpoint.methods?.join(', ') || 'GET'}
+                  </div>
+                </div>
+                <div>
+                  <span className="text-slate-500 uppercase text-[10px]">Discovery Sources</span>
+                  <div className="text-slate-200 mt-0.5 p-2 rounded bg-slate-950 border border-slate-800">
+                    {selectedEndpoint.sources?.join(', ') || 'N/A'}
+                  </div>
+                </div>
+              </div>
+
+              {selectedEndpoint.query_params?.length > 0 && (
+                <div>
+                  <span className="text-slate-500 uppercase text-[10px]">Query Parameters</span>
+                  <div className="flex flex-wrap gap-1.5 mt-1">
+                    {selectedEndpoint.query_params.map((p, i) => (
+                      <span key={i} className="px-2 py-0.5 rounded bg-slate-800 text-cyan-300 border border-slate-700">
+                        {p}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {selectedEndpoint.body_fields?.length > 0 && (
+                <div>
+                  <span className="text-slate-500 uppercase text-[10px]">JSON Request Body Fields</span>
+                  <div className="flex flex-wrap gap-1.5 mt-1">
+                    {selectedEndpoint.body_fields.map((p, i) => (
+                      <span key={i} className="px-2 py-0.5 rounded bg-slate-800 text-amber-300 border border-slate-700">
+                        {p}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {selectedEndpoint.tech_fingerprints?.length > 0 && (
+                <div>
+                  <span className="text-slate-500 uppercase text-[10px]">Technology Stack</span>
+                  <div className="flex flex-wrap gap-1.5 mt-1">
+                    {selectedEndpoint.tech_fingerprints.map((t, i) => (
+                      <span key={i} className="px-2 py-0.5 rounded bg-purple-500/10 text-purple-300 border border-purple-500/20">
+                        {t}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div className="pt-3 border-t border-slate-800 flex justify-end gap-2">
+              <button
+                onClick={() => {
+                  handleQueueEndpoint(selectedEndpoint);
+                  setSelectedEndpoint(null);
+                }}
+                className="px-4 py-2 rounded-xl bg-cyan-600 hover:bg-cyan-500 text-white font-bold text-xs transition cursor-pointer flex items-center gap-1.5"
+              >
+                <Lock className="w-3.5 h-3.5" />
+                <span>Queue for IDOR Differential Testing</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* IDOR EVIDENCE BUNDLE MODAL */}
+      {activeEvidenceComp && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-md p-4 animate-in fade-in duration-200">
+          <div className="bg-[#0b101e] border border-slate-800 p-6 rounded-3xl w-full max-w-2xl max-h-[85vh] overflow-y-auto space-y-4 shadow-2xl">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+              <div className="flex items-center gap-2">
+                <Shield className="w-5 h-5 text-red-400" />
+                <h3 className="text-base font-bold text-white">IDOR Differential Evidence Bundle</h3>
+              </div>
+              <button onClick={() => setActiveEvidenceComp(null)} className="text-slate-400 hover:text-white cursor-pointer">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="space-y-3 text-xs font-mono">
+              <div>
+                <span className="text-slate-500 uppercase text-[10px]">Target URL</span>
+                <div className="text-cyan-300 mt-0.5 p-2 rounded bg-slate-950 border border-slate-800 break-all">
+                  {activeEvidenceComp.request_url}
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <span className="text-slate-500 uppercase text-[10px]">Boundary Isolation Level</span>
+                  <div className="text-white font-bold mt-0.5 p-2 rounded bg-slate-950 border border-slate-800 uppercase">
+                    {activeEvidenceComp.boundary}
+                  </div>
+                </div>
+                <div>
+                  <span className="text-slate-500 uppercase text-[10px]">Verdict</span>
+                  <div className="text-red-400 font-bold mt-0.5 p-2 rounded bg-slate-950 border border-slate-800">
+                    {activeEvidenceComp.status}
+                  </div>
+                </div>
+              </div>
+
+              {activeEvidenceComp.disclosed_sensitive_fields?.length > 0 && (
+                <div>
+                  <span className="text-red-400 uppercase text-[10px] font-bold">Disclosed Sensitive Data Fields</span>
+                  <div className="flex flex-wrap gap-1.5 mt-1">
+                    {activeEvidenceComp.disclosed_sensitive_fields.map((f, i) => (
+                      <span key={i} className="px-2 py-0.5 rounded bg-red-500/15 text-red-300 border border-red-500/30">
+                        {f}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {activeEvidenceComp.evidence_notes && (
+                <div>
+                  <span className="text-slate-500 uppercase text-[10px]">Differential Evidence Notes</span>
+                  <div className="text-slate-300 mt-0.5 p-2 rounded bg-slate-950 border border-slate-800 font-sans">
+                    {activeEvidenceComp.evidence_notes}
+                  </div>
+                </div>
+              )}
+
+              {activeEvidenceComp.redacted_tester_response && (
+                <div>
+                  <span className="text-slate-500 uppercase text-[10px]">Tester Response Body (Redacted)</span>
+                  <pre className="text-slate-300 mt-0.5 p-3 rounded bg-slate-950 border border-slate-800 overflow-x-auto text-[11px] max-h-48">
+                    {activeEvidenceComp.redacted_tester_response}
+                  </pre>
+                </div>
+              )}
+            </div>
+
+            <div className="pt-3 border-t border-slate-800 flex justify-end">
+              <button
+                onClick={() => setActiveEvidenceComp(null)}
+                className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold transition cursor-pointer"
+              >
+                Close Evidence
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* NEW SCAN MODAL WIZARD */}
       {scanModalOpen && (
@@ -2583,6 +5154,272 @@ export default function App() {
                   </button>
                 </div>
               </form>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* RCE VALIDATION MODAL */}
+      {rceValidationModalCand && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-md p-4 animate-in fade-in duration-200">
+          <div className="bg-[#0b101e] border border-slate-800 p-6 rounded-3xl w-full max-w-xl max-h-[90vh] overflow-y-auto space-y-4 shadow-2xl">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+              <div className="flex items-center gap-2">
+                <Shield className="w-5 h-5 text-purple-400" />
+                <h3 className="text-base font-bold text-white">Execute 3-Profile RCE Validation</h3>
+              </div>
+              <button onClick={() => setRceValidationModalCand(null)} className="text-slate-400 hover:text-white cursor-pointer">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="space-y-3 text-xs">
+              <div className="p-3 rounded-xl bg-slate-950 border border-slate-800 font-mono">
+                <span className="text-[10px] text-slate-500 uppercase block">Candidate Target</span>
+                <span className="text-white font-bold">{rceValidationModalCand.method} {rceValidationModalCand.route}</span>
+                <div className="text-cyan-400 text-[11px] break-all">{rceValidationModalCand.target_url}</div>
+              </div>
+
+              {/* Profile selection */}
+              <div className="space-y-2">
+                <span className="text-[11px] font-bold text-slate-300 uppercase tracking-wider block">
+                  Select Validation Profile
+                </span>
+
+                <label className={`p-3 rounded-xl border flex items-start gap-3 cursor-pointer transition ${
+                  rceValidationProfile === 'safe_active' ? 'bg-purple-500/10 border-purple-500/50 ring-1 ring-purple-500/30' : 'bg-slate-950 border-slate-800 hover:border-slate-700'
+                }`}>
+                  <input
+                    type="radio"
+                    name="valProfile"
+                    value="safe_active"
+                    checked={rceValidationProfile === 'safe_active'}
+                    onChange={() => setRceValidationProfile('safe_active')}
+                    className="mt-0.5 text-purple-500 focus:ring-purple-500 cursor-pointer"
+                  />
+                  <div>
+                    <span className="font-bold text-white block">Profile 2: Safe Active Probing (Recommended)</span>
+                    <span className="text-slate-400 block mt-0.5 font-sans leading-normal">
+                      Dispatches benign mathematical markers ($&#123;7*7&#125; &rarr; 49) with negative control ($&#123;7*8&#125;) and reflection exclusion. Zero shell execution.
+                    </span>
+                  </div>
+                </label>
+
+                <label className={`p-3 rounded-xl border flex items-start gap-3 cursor-pointer transition ${
+                  rceValidationProfile === 'passive' ? 'bg-purple-500/10 border-purple-500/50 ring-1 ring-purple-500/30' : 'bg-slate-950 border-slate-800 hover:border-slate-700'
+                }`}>
+                  <input
+                    type="radio"
+                    name="valProfile"
+                    value="passive"
+                    checked={rceValidationProfile === 'passive'}
+                    onChange={() => setRceValidationProfile('passive')}
+                    className="mt-0.5 text-purple-500 focus:ring-purple-500 cursor-pointer"
+                  />
+                  <div>
+                    <span className="font-bold text-white block">Profile 1: Passive Analysis</span>
+                    <span className="text-slate-400 block mt-0.5 font-sans leading-normal">
+                      Zero traffic sent. Evaluates headers, technologies, and route parameters against vulnerability advisories.
+                    </span>
+                  </div>
+                </label>
+
+                <label className={`p-3 rounded-xl border flex items-start gap-3 cursor-pointer transition ${
+                  rceValidationProfile === 'manual' ? 'bg-purple-500/10 border-purple-500/50 ring-1 ring-purple-500/30' : 'bg-slate-950 border-slate-800 hover:border-slate-700'
+                }`}>
+                  <input
+                    type="radio"
+                    name="valProfile"
+                    value="manual"
+                    checked={rceValidationProfile === 'manual'}
+                    onChange={() => setRceValidationProfile('manual')}
+                    className="mt-0.5 text-purple-500 focus:ring-purple-500 cursor-pointer"
+                  />
+                  <div>
+                    <span className="font-bold text-white block">Profile 3: Manual Verification Plan</span>
+                    <span className="text-slate-400 block mt-0.5 font-sans leading-normal">
+                      Generates structured, reproducible curl command and manual review steps for researcher validation.
+                    </span>
+                  </div>
+                </label>
+              </div>
+
+              {/* Auth Profile Selection */}
+              <div className="space-y-1.5">
+                <label className="text-[11px] font-bold text-slate-300 uppercase tracking-wider block">
+                  Authentication Principal (Optional)
+                </label>
+                <select
+                  value={rceValidationAuthPrincipal}
+                  onChange={e => setRceValidationAuthPrincipal(e.target.value)}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-xs text-white focus:outline-none focus:border-purple-500 cursor-pointer"
+                >
+                  <option value="">None (Unauthenticated request)</option>
+                  {authProfiles.map((p, i) => (
+                    <option key={i} value={p.principal_label}>
+                      {p.principal_label} ({p.tenant_label || 'no-tenant'} - {p.role || 'member'})
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Safety notice */}
+              <div className="p-3 rounded-xl bg-purple-500/10 border border-purple-500/25 text-[11px] text-purple-300 space-y-1">
+                <span className="font-bold flex items-center gap-1">
+                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+                  <span>Transport-Layer Scope Protection</span>
+                </span>
+                <p className="text-slate-400 font-sans">
+                  Target is enforced by ScopedTransport against YAML scope. Probing uses benign arithmetic evaluation markers only.
+                </p>
+              </div>
+            </div>
+
+            <div className="pt-3 border-t border-slate-800 flex justify-end gap-2">
+              <button
+                onClick={() => setRceValidationModalCand(null)}
+                className="px-4 py-2 rounded-xl text-slate-400 hover:text-white hover:bg-slate-800 text-xs font-semibold transition cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => handleValidateRCE(rceValidationModalCand.id)}
+                disabled={rceValidating}
+                className="px-5 py-2 rounded-xl bg-purple-600 hover:bg-purple-500 text-white font-bold text-xs shadow-lg shadow-purple-600/25 transition cursor-pointer flex items-center gap-1.5 disabled:opacity-50"
+              >
+                <Play className={`w-3.5 h-3.5 fill-current ${rceValidating ? 'animate-spin' : ''}`} />
+                <span>{rceValidating ? 'Validating...' : 'Execute Validation'}</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* RCE EVIDENCE BUNDLE MODAL */}
+      {rceEvidenceModalCand && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-md p-4 animate-in fade-in duration-200">
+          <div className="bg-[#0b101e] border border-slate-800 p-6 rounded-3xl w-full max-w-2xl max-h-[85vh] overflow-y-auto space-y-4 shadow-2xl">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+              <div className="flex items-center gap-2">
+                <Terminal className="w-5 h-5 text-purple-400" />
+                <h3 className="text-base font-bold text-white">RCE Evidence Bundle & Verification Audit</h3>
+              </div>
+              <button onClick={() => setRceEvidenceModalCand(null)} className="text-slate-400 hover:text-white cursor-pointer">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="space-y-3 text-xs font-mono">
+              {(() => {
+                const activeAttempt = getLastAttempt(rceEvidenceModalCand);
+                const candRoute = rceEvidenceModalCand.route || rceEvidenceModalCand.normalized_route || '';
+                const candMethod = rceEvidenceModalCand.http_method || rceEvidenceModalCand.method || 'POST';
+                const candUrl = rceEvidenceModalCand.target || rceEvidenceModalCand.target_url || (rceEvidenceModalCand.origin ? `${rceEvidenceModalCand.origin}${candRoute}` : candRoute);
+                const candStatus = rceEvidenceModalCand.validation_status || rceEvidenceModalCand.status || 'candidate';
+                const reproCurl = rceEvidenceModalCand.reproduction_curl || 
+                  activeAttempt?.reproduction_curl || 
+                  (activeAttempt?.positive_request_sent?.startsWith('curl') 
+                    ? activeAttempt.positive_request_sent 
+                    : `curl -s -X ${candMethod} -d "template=\${7*7}" "${candUrl}"`);
+
+                return (
+                  <>
+                    <div>
+                      <span className="text-slate-500 uppercase text-[10px]">Target Route</span>
+                      <div className="text-white font-bold mt-0.5 p-2 rounded bg-slate-950 border border-slate-800">
+                        {candMethod} {candRoute}
+                      </div>
+                    </div>
+
+                    <div>
+                      <span className="text-slate-500 uppercase text-[10px]">Canonical URL</span>
+                      <div className="text-cyan-300 mt-0.5 p-2 rounded bg-slate-950 border border-slate-800 break-all">
+                        {candUrl}
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <span className="text-slate-500 uppercase text-[10px]">Scope Transport Check</span>
+                        <div className="text-emerald-400 font-bold mt-0.5 p-2 rounded bg-slate-950 border border-slate-800 flex items-center gap-1.5">
+                          <CheckCircle2 className="w-3.5 h-3.5" />
+                          <span>ScopedTransport Enforced</span>
+                        </div>
+                      </div>
+                      <div>
+                        <span className="text-slate-500 uppercase text-[10px]">Gate Verdict</span>
+                        <div className="text-purple-300 font-bold mt-0.5 p-2 rounded bg-slate-950 border border-slate-800 uppercase">
+                          {candStatus}
+                        </div>
+                      </div>
+                    </div>
+
+                    {activeAttempt && (
+                      <div className="p-3.5 rounded-xl bg-slate-950 border border-slate-800 space-y-2">
+                        <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider block">
+                          Safe Active Marker Evaluation Results
+                        </span>
+                        <div className="space-y-1.5 text-[11px]">
+                          <div className="flex items-center justify-between py-1 px-2.5 rounded bg-slate-900 border border-slate-800">
+                            <span className="text-slate-400">Marker Sent:</span>
+                            <span className="text-purple-300 font-mono">{activeAttempt.marker_sent || activeAttempt.positive_request_sent || '${7*7}'}</span>
+                          </div>
+                          <div className="flex items-center justify-between py-1 px-2.5 rounded bg-slate-900 border border-slate-800">
+                            <span className="text-slate-400">Reflection Check:</span>
+                            <span className="text-emerald-400 font-mono">
+                              {activeAttempt.reflection_excluded || activeAttempt.marker_reflected === false ? 'PASS (Not Reflected)' : 'FAIL (Reflected)'}
+                            </span>
+                          </div>
+                          <div className="flex items-center justify-between py-1 px-2.5 rounded bg-slate-900 border border-slate-800">
+                            <span className="text-slate-400">Negative Control:</span>
+                            <span className="text-emerald-400 font-mono">
+                              {activeAttempt.negative_control_verified !== false ? 'PASS (Negative control passed)' : 'FAIL'}
+                            </span>
+                          </div>
+                          {activeAttempt.notes && (
+                            <div className="p-2 rounded bg-slate-900 border border-slate-800 text-slate-300 text-[11px]">
+                              <span className="text-slate-500 uppercase text-[10px] block mb-0.5">Verification Notes:</span>
+                              {activeAttempt.notes}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Reproduction curl */}
+                    {reproCurl && (
+                      <div>
+                        <div className="flex items-center justify-between">
+                          <span className="text-slate-500 uppercase text-[10px]">Reproducible Curl Command</span>
+                          <button
+                            onClick={() => {
+                              navigator.clipboard?.writeText(reproCurl);
+                              setCopied(true);
+                              setTimeout(() => setCopied(false), 2000);
+                            }}
+                            className="text-cyan-400 hover:text-cyan-300 text-[10px] flex items-center gap-1 cursor-pointer font-sans"
+                          >
+                            {copied ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
+                            <span>{copied ? 'Copied' : 'Copy Curl'}</span>
+                          </button>
+                        </div>
+                        <pre className="text-slate-300 mt-0.5 p-3 rounded bg-slate-950 border border-slate-800 overflow-x-auto text-[11px] whitespace-pre-wrap">
+                          {reproCurl}
+                        </pre>
+                      </div>
+                    )}
+                  </>
+                );
+              })()}
+            </div>
+
+            <div className="pt-3 border-t border-slate-800 flex justify-end">
+              <button
+                onClick={() => setRceEvidenceModalCand(null)}
+                className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold transition cursor-pointer"
+              >
+                Close Evidence
+              </button>
             </div>
           </div>
         </div>

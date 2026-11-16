@@ -503,6 +503,49 @@ Covered in §8.
 
 Covered in §4.4.
 
+### 7.15 `ui` — local research dashboard & REST API
+
+| | |
+|---|---|
+| **Purpose** | Single-page browser interface and local REST API daemon with real-time SSE updates |
+| **Own flags** | `--port` (default `8080`) · `--runs-dir` (default `.scoutr/runs`) · `--static-dir` |
+| **Security boundaries** | Binds strictly to loopback (`127.0.0.1`), enforces Host header validation, loopback CORS, 32-byte cryptographic session token (`X-Scoutr-Token`), Anti-CSRF protection, path traversal guards, and OS-level ACLs (Windows `icacls`, Unix `0600`) |
+| **Capabilities** | Endpoints Explorer, HAR ingestion, dual-account IDOR Center, RCE Research Center (6 sink categories, multi-step chains, advisory progression, 3-profile validation), Candidate Object Reference management, Differential Testing Matrix with Evidence Bundles, and live background scan monitoring |
+
+```powershell
+scoutr ui --scope scope.yaml
+scoutr ui --scope scope.yaml --port 8765
+```
+
+### 7.16 `idor` — differential authorization research CLI
+
+| | |
+|---|---|
+| **Purpose** | Extract candidate object references, execute differential authorization tests, and generate IDOR research reports |
+| **Subcommands** | `inventory` · `compare` · `report` |
+| **Own flags** | `--from <run-dir>` · `--har <file>` · `--owner <label>` · `--tenant <label>` · `--user-a <profile>` · `--user-b <profile>` |
+
+```powershell
+scoutr idor inventory --from .scoutr\runs\<run-dir> --har traffic.har
+scoutr idor compare --from .scoutr\runs\<run-dir> --user-a user-a --user-b user-b
+scoutr idor report --from .scoutr\runs\<run-dir> -o idor_report.md
+```
+
+### 7.17 `rce` — execution sink discovery, advisory reachability, and 3-profile validation CLI
+
+| | |
+|---|---|
+| **Purpose** | Classify execution attack surfaces across 6 sink categories, track multi-step processing chains, correlate public CVE advisories with 6-stage reachability progression, and execute graduated 3-profile validation |
+| **Subcommands** | `discover` · `list` · `validate` · `report` |
+| **Own flags** | `--from <run-dir>` · `--category <cat>` · `--status <state>` · `--min-priority <N>` · `--id <candidate-id>` · `--profile <passive\|safe_active\|manual>` · `--auth <principal>` · `-o <output-file>` · `--json` |
+
+```powershell
+scoutr rce discover --from .scoutr\runs\<run-dir>
+scoutr rce list --from .scoutr\runs\<run-dir> --category ssti --min-priority 75
+scoutr rce validate --from .scoutr\runs\<run-dir> --id rce-ssti-101 --profile safe_active
+scoutr rce report --from .scoutr\runs\<run-dir> -o rce_report.md
+```
+
 ---
 
 ## 8. The `run` pipeline

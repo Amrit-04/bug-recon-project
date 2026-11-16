@@ -3,6 +3,7 @@ package tools
 import (
 	"context"
 	"fmt"
+	"net"
 	"os"
 	"strings"
 	"testing"
@@ -259,5 +260,145 @@ func TestSafeToolExecutionTempFile(t *testing.T) {
 	// Verify temp file was cleaned up (defer os.Remove)
 	if _, err := os.Stat(passedFilePath); !os.IsNotExist(err) {
 		t.Errorf("expected temp file %s to be deleted after execution, but it still exists", passedFilePath)
+	}
+}
+
+type toolsMockDNS struct {
+	records map[string][]string
+}
+
+func (m *toolsMockDNS) LookupIP(ctx context.Context, network, host string) ([]net.IP, error) {
+	if ips, ok := m.records[host]; ok {
+		var out []net.IP
+		for _, ipStr := range ips {
+			out = append(out, net.ParseIP(ipStr))
+		}
+		return out, nil
+	}
+	return nil, fmt.Errorf("no such host: %s", host)
+}
+
+func TestExternalToolScopeExclusionFlags(t *testing.T) {
+	s := createTestScope(t) // has out_of_scope: admin.example.com, forbidden.com
+	runner := NewMockRunner()
+
+	// 1. Test Naabu receives -eh flag
+	var naabuArgs []string
+	runner.RegisterTool("naabu", "/bin/naabu", func(ctx context.Context, args []string, stdin []byte) ([]byte, []byte, error) {
+		naabuArgs = args
+		return []byte(`{"host":"api.example.com","port":443,"protocol":"tcp"}` + "\n"), nil, nil
+	})
+	_, err := RunNaabu(context.Background(), runner, s, []string{"api.example.com"}, 100, 10, DefaultLog)
+	if err != nil {
+		t.Fatalf("RunNaabu error: %v", err)
+	}
+	hasNaabuEH := false
+	for i, a := range naabuArgs {
+		if a == "-eh" && i+1 < len(naabuArgs) && strings.Contains(naabuArgs[i+1], "admin.example.com") {
+			hasNaabuEH = true
+			break
+		}
+	}
+	if !hasNaabuEH {
+		t.Errorf("expected naabu to receive -eh flag with out_of_scope targets, got %v", naabuArgs)
+	}
+
+	// 2. Test Katana receives -dr, -no-redirects, -duc, -aff=false
+	var katanaArgs []string
+	runner.RegisterTool("katana", "/bin/katana", func(ctx context.Context, args []string, stdin []byte) ([]byte, []byte, error) {
+		katanaArgs = args
+		return []byte(`{"request":{"endpoint":"https://api.example.com/v1"}}` + "\n"), nil, nil
+	})
+	_, err = RunKatana(context.Background(), runner, s, []string{"https://api.example.com"}, 5, 2, DefaultLog)
+	if err != nil {
+		t.Fatalf("RunKatana error: %v", err)
+	}
+	for _, expectedFlag := range []string{"-dr", "-no-redirects", "-duc", "-aff=false"} {
+		found := false
+		for _, a := range katanaArgs {
+			if a == expectedFlag {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("expected katana to receive flag %s, got %v", expectedFlag, katanaArgs)
+		}
+	}
+
+	// 3. Test Nuclei receives -dr, -duc, -eh
+	var nucleiArgs []string
+	runner.RegisterTool("nuclei", "/bin/nuclei", func(ctx context.Context, args []string, stdin []byte) ([]byte, []byte, error) {
+		nucleiArgs = args
+		return []byte(`{"template-id":"ssl-dns","info":{"name":"SSL Info","severity":"info"},"host":"api.example.com"}` + "\n"), nil, nil
+	})
+	_, err = RunNucleiPosture(context.Background(), runner, s, []string{"api.example.com"}, 5, DefaultLog)
+	if err != nil {
+		t.Fatalf("RunNucleiPosture error: %v", err)
+	}
+	for _, expectedFlag := range []string{"-dr", "-duc", "-eh"} {
+		found := false
+		for _, a := range nucleiArgs {
+			if a == expectedFlag {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("expected nuclei to receive flag %s, got %v", expectedFlag, nucleiArgs)
+		}
+	}
+}
+
+func TestDNSResolutionScopeEnforcement(t *testing.T) {
+	s := scope.New(
+		[]string{"*.example.com", "example.com"},
+		[]string{"admin.example.com", "10.0.0.0/8"},
+	)
+	mockDNS := &toolsMockDNS{
+		records: map[string][]string{
+			"safe.example.com": {"93.184.216.34"},
+			"sub.example.com":  {"10.0.0.50"}, // Resolves to 10.0.0.0/8 (out of scope!)
+			"fuzz.example.com": {"10.0.0.99"}, // Resolves to 10.0.0.0/8 (out of scope!)
+		},
+	}
+	s.SetResolver(mockDNS)
+
+	runner := NewMockRunner()
+	nmapCalled := 0
+	runner.RegisterTool("nmap", "/bin/nmap", func(ctx context.Context, args []string, stdin []byte) ([]byte, []byte, error) {
+		nmapCalled++
+		return []byte(`<nmaprun></nmaprun>`), nil, nil
+	})
+
+	// Run nmap against both safe host and out-of-scope resolved host
+	targets := []NmapTarget{
+		{Host: "safe.example.com", Ports: []int{443}},
+		{Host: "sub.example.com", Ports: []int{443}}, // must be blocked by DNS scope check!
+	}
+	_, err := RunNmapServiceScan(context.Background(), runner, s, targets, 5, DefaultLog)
+	if err != nil {
+		t.Fatalf("unexpected error in RunNmapServiceScan: %v", err)
+	}
+
+	if nmapCalled != 1 {
+		t.Errorf("expected nmap to be called exactly once for safe host, got %d calls", nmapCalled)
+	}
+
+	// Test FFUF DNS enforcement
+	ffufCalled := 0
+	runner.RegisterTool("ffuf", "/bin/ffuf", func(ctx context.Context, args []string, stdin []byte) ([]byte, []byte, error) {
+		ffufCalled++
+		outPath := argValue(args, "-o")
+		_ = os.WriteFile(outPath, []byte(`{"results":[]}`), 0644)
+		return nil, nil, nil
+	})
+
+	_, err = RunFFUF(context.Background(), runner, s, []string{"https://fuzz.example.com"}, 5, 10, DefaultLog)
+	if err != nil {
+		t.Fatalf("unexpected error in RunFFUF: %v", err)
+	}
+	if ffufCalled != 0 {
+		t.Errorf("expected ffuf NOT to be called against host resolving to out-of-scope IP, got %d calls", ffufCalled)
 	}
 }
